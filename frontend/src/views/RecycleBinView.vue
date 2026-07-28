@@ -3,18 +3,19 @@
     <div class="heading"><div><p>维护工具</p><h1 id="recycle-title">回收站</h1><span>已删除记录可恢复；永久删除不可撤销。</span></div><RouterLink :to="{ name: 'gift-list' }">返回礼物列表</RouterLink></div>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <div class="table-wrap"><table><thead><tr><th>礼物</th><th>类型</th><th>操作</th></tr></thead><tbody><tr v-for="gift in gifts" :key="gift.id"><td>{{ gift.emoji }} {{ gift.canonicalName }}</td><td>{{ gift.giftTypeCode === 'product' ? '商品' : '活动' }}</td><td><button :data-action="`restore-${gift.id}`" type="button" @click="restore(gift)">恢复</button><button type="button" @click="pendingPurge = gift; typedName = ''">永久删除</button></td></tr><tr v-if="!gifts.length"><td colspan="3">回收站为空。</td></tr></tbody></table></div>
+    <nav v-if="total > pageSize" class="pager" aria-label="回收站分页"><button data-action="previous-page" type="button" :disabled="page === 1" @click="page--; load()">上一页</button><span>第 {{ page }} / {{ pageCount }} 页</span><button data-action="next-page" type="button" :disabled="page >= pageCount" @click="page++; load()">下一页</button></nav>
     <section v-if="pendingPurge" class="dialog" role="alertdialog"><div><h2>永久删除“{{ pendingPurge.canonicalName }}”？</h2><p>请输入完整名称以确认。此操作无法撤销。</p><input v-model="typedName" :placeholder="pendingPurge.canonicalName" /><div><button type="button" @click="pendingPurge = null">取消</button><button type="button" :disabled="typedName !== pendingPurge.canonicalName" @click="confirmPurge">永久删除</button></div></div></section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { listGifts, purgeGift, restoreGift } from "../api/gifts";
 import type { GiftRead } from "../api/gifts";
-const gifts = ref<GiftRead[]>([]); const notice = ref(""); const pendingPurge = ref<GiftRead | null>(null); const typedName = ref("");
-async function load() { gifts.value = (await listGifts({ deleted: "only" })).items; }
+const gifts = ref<GiftRead[]>([]); const total = ref(0); const page = ref(1); const pageSize = 50; const notice = ref(""); const pendingPurge = ref<GiftRead | null>(null); const typedName = ref(""); const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize)));
+async function load() { const result = await listGifts({ deleted: "only", page: page.value, pageSize }); gifts.value = result.items; total.value = result.total; }
 async function restore(gift: GiftRead) { await restoreGift(gift.id); notice.value = `已恢复“${gift.canonicalName}”。`; await load(); }
-async function confirmPurge() { if (!pendingPurge.value || typedName.value !== pendingPurge.value.canonicalName) return; const name = pendingPurge.value.canonicalName; await purgeGift(pendingPurge.value.id); pendingPurge.value = null; notice.value = `已永久删除“${name}”。`; await load(); }
+async function confirmPurge() { if (!pendingPurge.value || typedName.value !== pendingPurge.value.canonicalName) return; const name = pendingPurge.value.canonicalName; await purgeGift(pendingPurge.value.id, name); pendingPurge.value = null; notice.value = `已永久删除“${name}”。`; if (gifts.value.length === 1 && page.value > 1) page.value--; await load(); }
 onMounted(load);
 </script>
 

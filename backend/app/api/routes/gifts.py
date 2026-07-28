@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import SessionContext, get_db_session, require_session
-from backend.app.schemas.gift import GiftBulkStatusUpdate, GiftCreate, GiftRead
+from backend.app.schemas.gift import GiftBulkStatusUpdate, GiftCreate, GiftPurgeConfirmation, GiftRead
 from backend.app.services.duplicates import find_duplicates
 from backend.app.services.gifts import (
     DuplicateGiftError,
@@ -146,8 +146,16 @@ async def restore_recycled_gift(gift_id: UUID, session: DatabaseSession, _auth: 
 
 
 @router.delete("/recycle-bin/gifts/{gift_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def purge_recycled_gift(gift_id: UUID, session: DatabaseSession, _auth: ProtectedSession) -> Response:
+async def purge_recycled_gift(
+    gift_id: UUID,
+    confirmation: GiftPurgeConfirmation,
+    session: DatabaseSession,
+    _auth: ProtectedSession,
+) -> Response:
     try:
+        gift = await get_gift(session, gift_id, include_deleted=True)
+        if gift.canonical_name != confirmation.canonical_name:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Gift name confirmation does not match")
         await purge_gift(session, gift_id)
     except GiftNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gift not found") from exc

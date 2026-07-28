@@ -77,4 +77,40 @@ describe("gift discovery and recycle-bin views", () => {
 
     expect(apiRequest).toHaveBeenCalledWith("/api/recycle-bin/gifts/product-1/restore", { method: "POST" });
   });
+
+  it("moves through every gift-list page without dropping active filters", async () => {
+    apiRequest.mockImplementation((path: string) => Promise.resolve(path.includes("page=2")
+      ? { items: [gifts[1]], total: 101, page: 2, pageSize: 50 }
+      : { items: [gifts[0]], total: 101, page: 1, pageSize: 50 }));
+    const router = createTestRouter();
+    await router.push("/gifts?giftType=product");
+    await router.isReady();
+    const wrapper = mount(GiftListView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-action="next-page"]').trigger("click");
+    await flushPromises();
+
+    expect(apiRequest).toHaveBeenLastCalledWith(expect.stringContaining("giftType=product"));
+    expect(apiRequest).toHaveBeenLastCalledWith(expect.stringContaining("page=2"));
+    expect(wrapper.text()).toContain("陶艺体验");
+  });
+
+  it("moves through every recycle-bin page", async () => {
+    apiRequest.mockImplementation((path: string) => Promise.resolve(path.includes("page=2")
+      ? { items: [gifts[1]], total: 51, page: 2, pageSize: 50 }
+      : { items: [gifts[0]], total: 51, page: 1, pageSize: 50 }));
+    const router = createTestRouter();
+    await router.push("/recycle-bin");
+    await router.isReady();
+    const wrapper = mount(RecycleBinView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get('[data-action="next-page"]').trigger("click");
+    await flushPromises();
+
+    expect(apiRequest).toHaveBeenLastCalledWith(expect.stringContaining("deleted=only"));
+    expect(apiRequest).toHaveBeenLastCalledWith(expect.stringContaining("page=2"));
+    expect(wrapper.text()).toContain("陶艺体验");
+  });
 });

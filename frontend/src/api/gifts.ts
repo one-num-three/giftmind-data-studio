@@ -71,7 +71,7 @@ export async function getDashboard(): Promise<DashboardSummary> { return apiRequ
 export async function copyGift(giftId: string): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/gifts/${giftId}/copy`, { method: "POST" }); }
 export async function deleteGift(giftId: string): Promise<void> { return apiRequest<void>(`/api/gifts/${giftId}`, { method: "DELETE" }); }
 export async function restoreGift(giftId: string): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/recycle-bin/gifts/${giftId}/restore`, { method: "POST" }); }
-export async function purgeGift(giftId: string): Promise<void> { return apiRequest<void>(`/api/recycle-bin/gifts/${giftId}`, { method: "DELETE" }); }
+export async function purgeGift(giftId: string, canonicalName: string): Promise<void> { return apiRequest<void>(`/api/recycle-bin/gifts/${giftId}`, { method: "DELETE", body: { canonicalName } }); }
 export async function updateGiftStatus(giftIds: string[], status: string): Promise<{ affected: number }> {
   return apiRequest<{ affected: number }>("/api/gifts/bulk/status", { method: "PATCH", body: { giftIds, status } });
 }

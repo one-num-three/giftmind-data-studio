@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, Field, TypeAdapter, field_validator, model_validator
+from pydantic import AliasChoices, AnyHttpUrl, Field, TypeAdapter, field_validator, model_validator
 
 from backend.app.schemas.common import APIModel, normalize_text
 
@@ -102,7 +102,11 @@ class GiftBulkStatusUpdate(APIModel):
     """The selected active gifts and their shared lifecycle status."""
 
     gift_ids: Annotated[list[UUID], Field(min_length=1)]
-    status: Annotated[str, Field(min_length=1, max_length=32)]
+    status: Literal["draft", "active", "inactive"]
+
+
+class GiftPurgeConfirmation(APIModel):
+    canonical_name: Annotated[str, Field(min_length=1, max_length=256, validation_alias=AliasChoices("canonicalName", "giftName"))]
 
 
 class GiftBase(APIModel):

@@ -32,7 +32,9 @@ def test_soft_delete_restore_and_purge_gift(tmp_path):
         assert restored.status_code == 200
         assert restored.json()["deletedAt"] is None
         assert client.delete(f"/api/gifts/{gift_id}").status_code == 204
-        assert client.delete(f"/api/recycle-bin/gifts/{gift_id}").status_code == 204
+        assert client.request("DELETE",
+            f"/api/recycle-bin/gifts/{gift_id}", json={"giftName": "可回收书签"}
+        ).status_code == 204
         assert client.get("/api/recycle-bin/gifts").json()["total"] == 0
 
 
@@ -49,7 +51,9 @@ def test_purge_bundle_removes_its_component_references(tmp_path):
 
         bundle_id = bundle.json()["id"]
         assert client.delete(f"/api/gifts/{bundle_id}").status_code == 204
-        assert client.delete(f"/api/recycle-bin/gifts/{bundle_id}").status_code == 204
+        assert client.request("DELETE",
+            f"/api/recycle-bin/gifts/{bundle_id}", json={"giftName": "礼物组合"}
+        ).status_code == 204
         assert client.get(f"/api/gifts/{component.json()['id']}").status_code == 200
 
 
@@ -66,7 +70,31 @@ def test_purge_component_removes_references_from_existing_bundles(tmp_path):
 
         component_id = component.json()["id"]
         assert client.delete(f"/api/gifts/{component_id}").status_code == 204
-        assert client.delete(f"/api/recycle-bin/gifts/{component_id}").status_code == 204
+        assert client.request("DELETE",
+            f"/api/recycle-bin/gifts/{component_id}", json={"giftName": "待清除组件"}
+        ).status_code == 204
         remaining_bundle = client.get(f"/api/gifts/{bundle.json()['id']}")
         assert remaining_bundle.status_code == 200
         assert remaining_bundle.json()["bundleComponents"] == []
+
+
+def test_purge_requires_the_exact_typed_gift_name(tmp_path):
+    """Catches a permanent-delete route that accepts a missing or incorrect confirmation."""
+    with create_client(tmp_path) as client:
+        login(client)
+        created = client.post("/api/gifts", json=product_payload("需确认删除"))
+        assert created.status_code == 201
+        gift_id = created.json()["id"]
+        assert client.delete(f"/api/gifts/{gift_id}").status_code == 204
+
+        missing = client.delete(f"/api/recycle-bin/gifts/{gift_id}")
+        wrong = client.request("DELETE",
+            f"/api/recycle-bin/gifts/{gift_id}", json={"giftName": "错误名称"}
+        )
+        confirmed = client.request("DELETE",
+            f"/api/recycle-bin/gifts/{gift_id}", json={"giftName": "需确认删除"}
+        )
+
+    assert missing.status_code == 422
+    assert wrong.status_code == 422
+    assert confirmed.status_code == 204

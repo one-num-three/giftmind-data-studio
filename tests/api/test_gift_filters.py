@@ -45,3 +45,18 @@ def test_bulk_status_change_updates_each_active_gift_and_audits_each_row(tmp_pat
     assert client.get(f"/api/gifts/{first.json()['id']}").json()["status"] == "active"
     audit_ids = [event["entityId"] for event in dashboard.json()["recentChanges"] if event["eventType"] == "gift.status_changed"]
     assert {first.json()["id"], second.json()["id"]}.issubset(set(audit_ids))
+
+
+def test_bulk_status_rejects_unknown_lifecycle_status(tmp_path):
+    """Catches bulk operations that persist arbitrary status strings outside the lifecycle."""
+    with create_client(tmp_path) as client:
+        login(client)
+        gift = client.post("/api/gifts", json=product_payload("状态受限礼物"))
+        assert gift.status_code == 201
+
+        changed = client.patch(
+            "/api/gifts/bulk/status",
+            json={"giftIds": [gift.json()["id"]], "status": "published"},
+        )
+
+    assert changed.status_code == 422

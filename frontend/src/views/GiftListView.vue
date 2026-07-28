@@ -6,12 +6,13 @@
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <GiftTable v-if="view === 'table'" v-model:selected-ids="selectedIds" :gifts="gifts" @copy="pendingCopy = $event" @delete="removeGift" />
     <GiftCards v-else :gifts="gifts" @copy="pendingCopy = $event" @delete="removeGift" />
+    <nav v-if="total > pageSize" class="pager" aria-label="礼物列表分页"><button data-action="previous-page" type="button" :disabled="page === 1" @click="page--; load()">上一页</button><span>第 {{ page }} / {{ pageCount }} 页</span><button data-action="next-page" type="button" :disabled="page >= pageCount" @click="page++; load()">下一页</button></nav>
     <section v-if="pendingCopy" data-copy-confirm class="dialog" role="alertdialog"><div><h2>复制“{{ pendingCopy.canonicalName }}”？</h2><p>将创建一条新草稿，并清除验证状态。</p><button type="button" @click="pendingCopy = null">取消</button><button data-action="confirm-copy" type="button" @click="confirmCopy">确认复制</button></div></section>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { copyGift, deleteGift, listGifts, updateGiftStatus } from "../api/gifts";
 import type { GiftRead } from "../api/gifts";
@@ -22,12 +23,12 @@ import GiftTable from "../components/gifts/GiftTable.vue";
 const route = useRoute(); const router = useRouter();
 const filters = reactive({ q: String(route.query.q ?? ""), giftType: String(route.query.giftType ?? ""), status: String(route.query.status ?? "") });
 const view = ref(route.query.view === "cards" || (!route.query.view && window.innerWidth < 720) ? "cards" : "table");
-const gifts = ref<GiftRead[]>([]); const total = ref(0); const selectedIds = ref<string[]>([]); const bulkStatus = ref("active"); const pendingCopy = ref<GiftRead | null>(null); const notice = ref("");
+const gifts = ref<GiftRead[]>([]); const total = ref(0); const page = ref(1); const pageSize = 50; const pageCount = computed(() => Math.max(1, Math.ceil(total.value / pageSize))); const selectedIds = ref<string[]>([]); const bulkStatus = ref("active"); const pendingCopy = ref<GiftRead | null>(null); const notice = ref("");
 let searchTimer: number | undefined;
-async function load() { const result = await listGifts({ q: filters.q || undefined, giftType: filters.giftType as "product" | "activity" | undefined, status: filters.status || undefined, deleted: "exclude" }); gifts.value = result.items; total.value = result.total; selectedIds.value = selectedIds.value.filter((id) => gifts.value.some((gift) => gift.id === id)); }
+async function load() { const result = await listGifts({ q: filters.q || undefined, giftType: filters.giftType as "product" | "activity" | undefined, status: filters.status || undefined, deleted: "exclude", page: page.value, pageSize }); gifts.value = result.items; total.value = result.total; selectedIds.value = selectedIds.value.filter((id) => gifts.value.some((gift) => gift.id === id)); }
 function updateQuery() { router.replace({ query: { ...(filters.q ? { q: filters.q } : {}), ...(filters.giftType ? { giftType: filters.giftType } : {}), ...(filters.status ? { status: filters.status } : {}), ...(view.value === "cards" ? { view: "cards" } : {}) } }); }
-async function setFilter(key: "giftType" | "status", value: string) { filters[key] = value; updateQuery(); await load(); }
-function setSearch(value: string) { filters.q = value; if (searchTimer) window.clearTimeout(searchTimer); searchTimer = window.setTimeout(async () => { updateQuery(); await load(); }, 250); }
+async function setFilter(key: "giftType" | "status", value: string) { filters[key] = value; page.value = 1; updateQuery(); await load(); }
+function setSearch(value: string) { filters.q = value; page.value = 1; if (searchTimer) window.clearTimeout(searchTimer); searchTimer = window.setTimeout(async () => { updateQuery(); await load(); }, 250); }
 function setView(next: "table" | "cards") { view.value = next; updateQuery(); }
 async function confirmCopy() { if (!pendingCopy.value) return; const name = pendingCopy.value.canonicalName; await copyGift(pendingCopy.value.id); pendingCopy.value = null; notice.value = `已复制“${name}”。`; await load(); }
 async function removeGift(gift: GiftRead) { await deleteGift(gift.id); notice.value = `已移入回收站：“${gift.canonicalName}”。`; await load(); }

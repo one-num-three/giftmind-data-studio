@@ -85,6 +85,7 @@ async def copy_gift(session: AsyncSession, gift_id: UUID) -> GiftRead:
     for key in ("id", "created_at", "updated_at", "deleted_at", "completeness_score", "verified_at"):
         values.pop(key, None)
     values["canonical_name"] = f"{source.canonical_name}（副本）"
+    values["status"] = "draft"
     copy = Gift(**values)
     session.add(copy)
     await session.flush()

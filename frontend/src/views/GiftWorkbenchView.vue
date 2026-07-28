@@ -11,7 +11,7 @@
         <GiftTypeSelector :model-value="draft.giftTypeCode" :locked="editingExisting" @select="selectType" />
         <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" />
         <ActivityFieldsSection v-else v-model="draft.activityDetails" />
-        <OfferEditor v-model="draft" /><BundleEditor v-model="draft" />
+        <OfferEditor v-model="draft" /><BundleEditor v-model="draft" :exclude-gift-id="giftId" />
         <div class="actions"><button type="button" @click="saveDraft">保存草稿</button><button type="submit">保存并继续</button><button data-action="save-next" type="button" @click="saveAndCreateNext">保存并新建下一条</button></div>
       </form>
       <QualityPanel class="workbench__quality" :draft="draft" />

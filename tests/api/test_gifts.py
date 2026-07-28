@@ -76,7 +76,7 @@ def test_create_list_duplicate_check_and_copy_gift(tmp_path):
         gift = created.json()
         assert gift["completenessScore"] == 100
 
-        updated_payload = product_payload("黄铜书签升级版")
+        updated_payload = {**product_payload("黄铜书签升级版"), "status": "active"}
         updated = client.put(f"/api/gifts/{gift['id']}", json=updated_payload)
         assert updated.status_code == 200
         assert updated.json()["canonicalName"] == "黄铜书签升级版"
@@ -97,6 +97,7 @@ def test_create_list_duplicate_check_and_copy_gift(tmp_path):
         assert copied.status_code == 201
         assert copied.json()["id"] != gift["id"]
         assert copied.json()["canonicalName"] == "黄铜书签升级版（副本）"
+        assert copied.json()["status"] == "draft"
         assert copied.json()["verifiedAt"] is None
 
 

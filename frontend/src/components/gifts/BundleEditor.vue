@@ -16,11 +16,12 @@ import { listGifts } from "../../api/gifts";
 import type { GiftRead } from "../../api/gifts";
 import type { CommonGiftDraft } from "../../stores/workbench";
 const modelValue = defineModel<CommonGiftDraft>({ required: true });
+const props = defineProps<{ excludeGiftId?: string | null; currentGiftId?: string | null }>();
 const componentOptions = ref<GiftRead[]>([]); const loading = ref(false); const loadError = ref(false);
 const componentId = computed(() => modelValue.value.bundleComponents[0]?.componentGiftId ?? "");
 function ensureComponent() { if (modelValue.value.isBundle && !modelValue.value.bundleComponents.length) modelValue.value.bundleComponents = [{ componentGiftId: "", quantity: 1, required: true, displayOrder: 0 }]; if (!modelValue.value.isBundle) modelValue.value.bundleComponents = []; }
 function syncComponent(event: Event) { const gift = componentOptions.value.find((item) => item.id === (event.target as HTMLSelectElement).value); if (!gift || !modelValue.value.bundleComponents[0]) return; modelValue.value.bundleComponents[0] = { ...modelValue.value.bundleComponents[0], componentGiftId: gift.id, componentTypeCode: gift.giftTypeCode, componentName: gift.canonicalName }; }
-async function loadOptions() { loading.value = true; loadError.value = false; try { componentOptions.value = (await listGifts({ deleted: "exclude", pageSize: 100 })).items; } catch { loadError.value = true; } finally { loading.value = false; } }
+async function loadOptions() { loading.value = true; loadError.value = false; try { const all: GiftRead[] = []; let page = 1; while (true) { const result = await listGifts({ deleted: "exclude", page, pageSize: 100 }); all.push(...result.items); if (all.length >= result.total || !result.items.length) break; page += 1; } const excluded = props.excludeGiftId ?? props.currentGiftId; componentOptions.value = all.filter((gift) => gift.id !== excluded); } catch { loadError.value = true; } finally { loading.value = false; } }
 watch(() => modelValue.value.isBundle, (isBundle) => { if (isBundle && !componentOptions.value.length) void loadOptions(); });
 </script>
 
