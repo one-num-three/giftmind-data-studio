@@ -12,20 +12,28 @@
 
   <section class="section" data-section="matching" aria-labelledby="matching-title">
     <h2 id="matching-title">Matching</h2>
-    <label>适合对象（逗号分隔）<input :value="modelValue.recipientTypes.join(', ')" @change="setList('recipientTypes', $event)" /></label>
-    <label>适合场景（逗号分隔）<input :value="modelValue.occasions.join(', ')" @change="setList('occasions', $event)" /></label>
-    <label>兴趣标签（逗号分隔）<input :value="modelValue.interests.join(', ')" @change="setList('interests', $event)" /></label>
-    <label>检索标签（逗号分隔）<input :value="modelValue.tags.join(', ')" @change="setList('tags', $event)" /></label>
+    <OptionPicker label="适合对象" field="recipientTypes" :options="recipientOptions" :selected="modelValue.recipientTypes" @toggle="toggle" />
+    <OptionPicker label="适合场景" field="occasions" :options="occasionOptions" :selected="modelValue.occasions" @toggle="toggle" />
+    <OptionPicker label="兴趣标签" field="interests" :options="interestOptions" :selected="modelValue.interests" @toggle="toggle" />
+    <OptionPicker label="检索标签" field="tags" :options="tagOptions" :selected="modelValue.tags" @toggle="toggle" />
   </section>
 </template>
 
 <script setup lang="ts">
 import type { CommonGiftDraft } from "../../stores/workbench";
+import OptionPicker from "./OptionPicker.vue";
 
 const modelValue = defineModel<CommonGiftDraft>({ required: true });
 type ListField = "recipientTypes" | "occasions" | "interests" | "tags";
-function setList(field: ListField, event: Event) {
-  modelValue.value[field] = (event.target as HTMLInputElement).value.split(",").map((item) => item.trim()).filter(Boolean);
+const recipientOptions = ["自己", "伴侣", "家人", "朋友", "同事", "孩子", "长辈", "老师", "客户"];
+const occasionOptions = ["生日", "纪念日", "节日", "毕业", "乔迁", "感谢", "道歉", "日常表达"];
+const interestOptions = ["阅读", "运动", "音乐", "美食", "旅行", "科技", "手作", "护肤", "宠物", "游戏"];
+const tagOptions = ["实用", "有仪式感", "高性价比", "小众", "可定制", "环保", "适合新手"];
+function toggle(field: string, value: string) {
+  if (!["recipientTypes", "occasions", "interests", "tags"].includes(field)) return;
+  const key = field as ListField;
+  const values = modelValue.value[key];
+  modelValue.value[key] = values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 </script>
 

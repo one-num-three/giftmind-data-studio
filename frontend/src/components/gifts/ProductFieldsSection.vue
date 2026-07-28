@@ -3,25 +3,27 @@
     <h2 id="product-title">Type-Specific Details · 商品</h2>
     <label>商品形态<select data-product-form :value="modelValue.productForm" @change="setProductForm"><option value="physical">实物</option><option value="digital">数字商品</option><option value="hybrid">混合</option></select></label>
     <label>通用商品名<input v-model="modelValue.genericProductName" /></label>
-    <label>材质（逗号分隔）<input data-product-materials :value="modelValue.materials.join(', ')" @change="setMaterials" /></label>
+    <OptionPicker data-product-materials label="常见材质" field="materials" :options="materialOptions" :selected="modelValue.materials" @toggle="toggleList" />
     <label><input v-model="modelValue.shippingRequired" type="checkbox" /> 需要配送</label>
-    <label>个性化方式（逗号分隔）<input data-personalization-methods :value="(modelValue.personalizationMethods ?? []).join(', ')" @change="setPersonalizationMethods" /></label>
+    <OptionPicker data-personalization-methods label="个性化方式" field="personalizationMethods" :options="personalizationOptions" :selected="modelValue.personalizationMethods ?? []" @toggle="toggleList" />
     <label v-if="modelValue.productForm !== 'physical'">数字交付方式<input data-digital-delivery v-model="modelValue.digitalDeliveryMethod" placeholder="下载链接、兑换码…" /></label>
   </section>
 </template>
 
 <script setup lang="ts">
 import type { ProductDetailsInput } from "../../api/gifts";
+import OptionPicker from "./OptionPicker.vue";
 
 const modelValue = defineModel<ProductDetailsInput>({ required: true });
-function setMaterials(event: Event) {
-  modelValue.value.materials = (event.target as HTMLInputElement).value.split(",").map((item) => item.trim()).filter(Boolean);
-}
+const materialOptions = ["木质", "金属", "陶瓷", "玻璃", "皮革", "棉麻", "纸张", "塑料", "天然材料"];
+const personalizationOptions = ["刻字", "印照片", "颜色可选", "尺寸可选", "包装定制", "图案定制", "贺卡定制"];
 function setProductForm(event: Event) {
   modelValue.value = { ...modelValue.value, productForm: (event.target as HTMLSelectElement).value as ProductDetailsInput["productForm"] };
 }
-function setPersonalizationMethods(event: Event) {
-  modelValue.value.personalizationMethods = (event.target as HTMLInputElement).value.split(",").map((item) => item.trim()).filter(Boolean);
+function toggleList(field: string, value: string) {
+  const key = field as "materials" | "personalizationMethods";
+  const current = modelValue.value[key] ?? [];
+  modelValue.value[key] = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
 }
 </script>
 
