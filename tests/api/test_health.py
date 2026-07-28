@@ -15,18 +15,11 @@ def test_health_reports_schema_version(test_settings):
     assert response.json() == {"status": "ok", "schemaVersion": 1}
 
 
-def test_app_module_imports_without_environment_settings():
+def test_app_module_rejects_missing_required_settings():
     environment = os.environ.copy()
     environment.pop("APP_SECRET", None)
     environment.pop("TEAM_PASSCODE_HASH", None)
-    script = """
-from fastapi.testclient import TestClient
-from backend.app.main import app
-
-with TestClient(app) as client:
-    response = client.get('/api/health')
-assert response.json() == {'status': 'ok', 'schemaVersion': 1}
-"""
+    script = "from backend.app.main import app"
 
     result = subprocess.run(
         [sys.executable, "-c", script],
@@ -37,4 +30,7 @@ assert response.json() == {'status': 'ok', 'schemaVersion': 1}
         check=False,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode != 0
+    assert "ValidationError" in result.stderr
+    assert "app_secret" in result.stderr
+    assert "team_passcode_hash" in result.stderr
