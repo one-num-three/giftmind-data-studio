@@ -1,5 +1,6 @@
 export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
+  handleUnauthorized?: boolean;
 }
 
 export class ApiError extends Error {
@@ -19,7 +20,7 @@ export function setUnauthorizedHandler(handler: () => void | Promise<void>): voi
 }
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const { body, headers, ...requestOptions } = options;
+  const { body, headers, handleUnauthorized = true, ...requestOptions } = options;
   const response = await fetch(path, {
     ...requestOptions,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -31,7 +32,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (response.status === 401 && handleUnauthorized) {
       await onUnauthorized?.();
     }
 

@@ -29,7 +29,9 @@ export const useSessionStore = defineStore("session", {
 
     async restore() {
       try {
-        this.applySession(await apiRequest<SessionResponse>("/api/session"));
+        this.applySession(await apiRequest<SessionResponse>("/api/session", {
+          handleUnauthorized: false,
+        }));
       } catch {
         this.clear();
       } finally {
