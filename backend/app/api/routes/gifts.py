@@ -1,17 +1,19 @@
 """Authenticated API routes for the typed gift collection and recycle bin."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import SessionContext, get_db_session, require_session
-from backend.app.schemas.gift import GiftCreate, GiftRead
+from backend.app.schemas.gift import GiftBulkStatusUpdate, GiftCreate, GiftRead
 from backend.app.services.duplicates import find_duplicates
 from backend.app.services.gifts import (
     DuplicateGiftError,
     GiftNotFoundError,
+    bulk_update_gift_status,
     copy_gift,
     create_gift,
     get_gift,
@@ -57,14 +59,27 @@ async def list_active_gifts(
     has_image: Annotated[bool | None, Query(alias="hasImage")] = None,
     has_offer: Annotated[bool | None, Query(alias="hasOffer")] = None,
     verified: bool | None = None,
+    deleted: Literal["exclude", "only"] = "exclude",
 ) -> dict:
     items, total = await list_gifts(
         session, page=page, page_size=page_size, q=q, status=status_filter, gift_type=gift_type,
         carrier_or_mode=carrier_or_mode, is_customizable=is_customizable, is_bundle=is_bundle,
         price_min=price_min, price_max=price_max, min_completeness=min_completeness,
-        has_image=has_image, has_offer=has_offer, verified=verified,
+        has_image=has_image, has_offer=has_offer, verified=verified, deleted=deleted,
     )
     return {"items": [item.model_dump(mode="json", by_alias=True) for item in items], "total": total, "page": page, "pageSize": page_size}
+
+
+@router.patch("/gifts/bulk/status")
+async def update_selected_gift_status(
+    payload: dict, session: DatabaseSession, _auth: ProtectedSession
+) -> dict[str, int]:
+    try:
+        change = GiftBulkStatusUpdate.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=exc.errors()) from exc
+    affected = await bulk_update_gift_status(session, change.gift_ids, change.status)
+    return {"affected": affected}
 
 
 @router.post("/gifts", response_model=GiftRead, status_code=status.HTTP_201_CREATED)
@@ -118,7 +133,7 @@ async def list_recycled_gifts(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(alias="pageSize", ge=1, le=100)] = 50,
 ) -> dict:
-    items, total = await list_gifts(session, page=page, page_size=page_size, include_deleted=True)
+    items, total = await list_gifts(session, page=page, page_size=page_size, deleted="only")
     return {"items": [item.model_dump(mode="json", by_alias=True) for item in items], "total": total, "page": page, "pageSize": page_size}
 
 

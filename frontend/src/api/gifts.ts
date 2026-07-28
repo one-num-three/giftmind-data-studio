@@ -41,12 +41,40 @@ export type GiftPayload = CommonGiftPayload & (
   | { giftTypeCode: "activity"; activityDetails: ActivityDetailsInput; productDetails?: never }
 );
 
-export type GiftRead = GiftPayload & { id: string; schemaVersion: number; completenessScore: number | null };
+export type GiftRead = GiftPayload & { id: string; schemaVersion: number; completenessScore: number | null; createdAt?: string; updatedAt?: string; deletedAt?: string | null };
 export interface DuplicateMatch { canonical_name: string; similarity: number; exact: boolean; }
+export interface GiftListFilters {
+  q?: string; status?: string; giftType?: GiftTypeCode; carrierOrMode?: string; isCustomizable?: boolean;
+  isBundle?: boolean; priceMin?: number; priceMax?: number; minCompleteness?: number; hasImage?: boolean;
+  hasOffer?: boolean; verified?: boolean; deleted?: "exclude" | "only"; page?: number; pageSize?: number;
+}
+export interface GiftListResponse { items: GiftRead[]; total: number; page: number; pageSize: number; }
+export interface AuditEventRead { eventType: string; entityType: string; entityId: string | null; payloadJson: Record<string, unknown> | unknown[] | null; createdAt: string; }
+export interface DashboardSummary {
+  total: number; complete: number; drafts: number; needsReview: number; inactive: number; productCount: number;
+  activityCount: number; missingImages: number; missingSources: number; staleChannels: number; possibleDuplicates: number;
+  recentChanges: AuditEventRead[];
+}
 
 export async function createGift(payload: GiftPayload): Promise<GiftRead> { return apiRequest<GiftRead>("/api/gifts", { method: "POST", body: payload }); }
 export async function getGift(giftId: string): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/gifts/${giftId}`); }
 export async function updateGift(giftId: string, payload: GiftPayload): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/gifts/${giftId}`, { method: "PUT", body: payload }); }
+export async function listGifts(filters: GiftListFilters = {}): Promise<GiftListResponse> {
+  const search = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  });
+  const suffix = search.size ? `?${search}` : "";
+  return apiRequest<GiftListResponse>(`/api/gifts${suffix}`);
+}
+export async function getDashboard(): Promise<DashboardSummary> { return apiRequest<DashboardSummary>("/api/dashboard"); }
+export async function copyGift(giftId: string): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/gifts/${giftId}/copy`, { method: "POST" }); }
+export async function deleteGift(giftId: string): Promise<void> { return apiRequest<void>(`/api/gifts/${giftId}`, { method: "DELETE" }); }
+export async function restoreGift(giftId: string): Promise<GiftRead> { return apiRequest<GiftRead>(`/api/recycle-bin/gifts/${giftId}/restore`, { method: "POST" }); }
+export async function purgeGift(giftId: string): Promise<void> { return apiRequest<void>(`/api/recycle-bin/gifts/${giftId}`, { method: "DELETE" }); }
+export async function updateGiftStatus(giftIds: string[], status: string): Promise<{ affected: number }> {
+  return apiRequest<{ affected: number }>("/api/gifts/bulk/status", { method: "PATCH", body: { giftIds, status } });
+}
 export async function findGiftDuplicates(canonicalName: string, aliases: string[]): Promise<DuplicateMatch[]> {
   const search = new URLSearchParams({ canonicalName });
   aliases.forEach((alias) => search.append("aliases", alias));

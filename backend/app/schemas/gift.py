@@ -98,6 +98,13 @@ class BundleComponentInput(APIModel):
     role_notes: str | None = None
 
 
+class GiftBulkStatusUpdate(APIModel):
+    """The selected active gifts and their shared lifecycle status."""
+
+    gift_ids: Annotated[list[UUID], Field(min_length=1)]
+    status: Annotated[str, Field(min_length=1, max_length=32)]
+
+
 class GiftBase(APIModel):
     canonical_name: Annotated[str, Field(min_length=1, max_length=256)]
     aliases: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(default_factory=list)

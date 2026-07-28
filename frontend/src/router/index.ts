@@ -2,8 +2,10 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import AppShell from "../components/layout/AppShell.vue";
 import DashboardView from "../views/DashboardView.vue";
+import GiftListView from "../views/GiftListView.vue";
 import GiftWorkbenchView from "../views/GiftWorkbenchView.vue";
 import LoginView from "../views/LoginView.vue";
+import RecycleBinView from "../views/RecycleBinView.vue";
 import { useSessionStore } from "../stores/session";
 
 declare module "vue-router" {
@@ -31,6 +33,11 @@ const router = createRouter({
           component: DashboardView,
         },
         {
+          path: "gifts",
+          name: "gift-list",
+          component: GiftListView,
+        },
+        {
           path: "gifts/new",
           name: "gift-create",
           component: GiftWorkbenchView,
@@ -40,6 +47,11 @@ const router = createRouter({
           name: "gift-edit",
           component: GiftWorkbenchView,
           props: (route) => ({ giftId: route.params.giftId }),
+        },
+        {
+          path: "recycle-bin",
+          name: "recycle-bin",
+          component: RecycleBinView,
         },
       ],
     },

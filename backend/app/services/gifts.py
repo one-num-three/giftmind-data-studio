@@ -1,6 +1,7 @@
 """Persist, retrieve, and recycle typed gifts."""
 
 from datetime import UTC, datetime
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy import delete, func, or_, select
@@ -140,7 +141,7 @@ async def list_gifts(
     *,
     page: int = 1,
     page_size: int = 50,
-    include_deleted: bool = False,
+    deleted: Literal["exclude", "only"] = "exclude",
     q: str | None = None,
     status: str | None = None,
     gift_type: str | None = None,
@@ -154,8 +155,8 @@ async def list_gifts(
     has_offer: bool | None = None,
     verified: bool | None = None,
 ) -> tuple[list[GiftRead], int]:
-    """Return a filtered, paginated collection or its recycle-bin counterpart."""
-    filters = [Gift.deleted_at.is_not(None) if include_deleted else Gift.deleted_at.is_(None)]
+    """Return a filtered, paginated active collection or recycle-bin counterpart."""
+    filters = [Gift.deleted_at.is_not(None) if deleted == "only" else Gift.deleted_at.is_(None)]
     if q:
         filters.append(func.lower(Gift.canonical_name).like(f"%{q.lower()}%"))
     if status:
@@ -196,6 +197,21 @@ async def list_gifts(
         select(Gift).where(*filters).order_by(Gift.updated_at.desc()).offset((page - 1) * page_size).limit(page_size)
     )).all()
     return [await _read_gift(session, gift) for gift in gifts], count or 0
+
+
+async def bulk_update_gift_status(
+    session: AsyncSession, gift_ids: list[UUID], status: str
+) -> int:
+    """Apply one status to selected active gifts and retain per-gift audit history."""
+    ids = [str(gift_id) for gift_id in gift_ids]
+    gifts = (await session.scalars(
+        select(Gift).where(Gift.id.in_(ids), Gift.deleted_at.is_(None))
+    )).all()
+    for gift in gifts:
+        gift.status = status
+        _audit(session, "gift.status_changed", gift, {"status": status})
+    await session.commit()
+    return len(gifts)
 
 
 def _gift_values(payload: GiftPayload) -> dict:
