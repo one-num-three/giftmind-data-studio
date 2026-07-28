@@ -1,7 +1,6 @@
 """Duplicate detection for canonical gift names and aliases."""
 
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 import re
 import unicodedata
 
@@ -27,6 +26,20 @@ def normalize_name(value: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", value).strip()).casefold()
 
 
+def trigram_similarity(left: str, right: str) -> float:
+    """Return Dice similarity for the names' overlapping, normalized trigrams."""
+    left_trigrams = _trigrams(left)
+    right_trigrams = _trigrams(right)
+    if not left_trigrams or not right_trigrams:
+        return 0.0
+    return 2 * len(left_trigrams & right_trigrams) / (len(left_trigrams) + len(right_trigrams))
+
+
+def _trigrams(value: str) -> set[str]:
+    normalized = normalize_name(value)
+    return {normalized[index:index + 3] for index in range(len(normalized) - 2)}
+
+
 async def find_duplicates(
     session: AsyncSession, canonical_name: str, aliases: list[str], *, exclude_gift_id: str | None = None
 ) -> list[DuplicateMatch]:
@@ -40,7 +53,7 @@ async def find_duplicates(
     for gift in gifts:
         known_names = [gift.canonical_name, *gift.aliases]
         similarity = max(
-            SequenceMatcher(a=candidate, b=normalize_name(known)).ratio()
+            trigram_similarity(candidate, known)
             for candidate in candidate_names
             for known in known_names
         )

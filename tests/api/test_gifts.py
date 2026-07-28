@@ -85,7 +85,7 @@ def test_create_list_duplicate_check_and_copy_gift(tmp_path):
         duplicate = client.post("/api/gifts", json=product_payload("  黄铜书签升级版  "))
         assert duplicate.status_code == 409
 
-        warning = client.get("/api/gifts/duplicates", params={"canonicalName": "黄铜书签升级板"})
+        warning = client.get("/api/gifts/duplicates", params={"canonicalName": "黄铜书签升级版X"})
         assert warning.status_code == 200
         assert warning.json()["matches"][0]["exact"] is False
 
@@ -98,3 +98,26 @@ def test_create_list_duplicate_check_and_copy_gift(tmp_path):
         assert copied.json()["id"] != gift["id"]
         assert copied.json()["canonicalName"] == "黄铜书签升级版（副本）"
         assert copied.json()["verifiedAt"] is None
+
+
+def test_duplicate_warnings_use_a_strict_trigram_threshold(tmp_path):
+    """Catches sequence-based matching and a non-strict similarity cutoff."""
+    with create_client(tmp_path) as client:
+        login(client)
+        assert client.post("/api/gifts", json=product_payload("abcdefg")).status_code == 201
+
+        at_or_below_threshold = client.get(
+            "/api/gifts/duplicates", params={"canonicalName": "abcdefX"}
+        )
+        assert at_or_below_threshold.status_code == 200
+        assert at_or_below_threshold.json()["matches"] == []
+
+        above_threshold = client.get(
+            "/api/gifts/duplicates", params={"canonicalName": "abcdefgX"}
+        )
+        assert above_threshold.status_code == 200
+        matches = above_threshold.json()["matches"]
+        assert len(matches) == 1
+        assert matches[0]["canonical_name"] == "abcdefg"
+        assert matches[0]["similarity"] == 0.9091
+        assert matches[0]["exact"] is False

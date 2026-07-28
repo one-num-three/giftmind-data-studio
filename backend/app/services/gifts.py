@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.models.assets import GiftImage
@@ -117,6 +117,14 @@ async def restore_gift(session: AsyncSession, gift_id: UUID) -> GiftRead:
 
 async def purge_gift(session: AsyncSession, gift_id: UUID) -> None:
     gift = await _deleted_gift(session, gift_id)
+    await session.execute(
+        delete(GiftBundleComponent).where(
+            or_(
+                GiftBundleComponent.bundle_gift_id == gift.id,
+                GiftBundleComponent.component_gift_id == gift.id,
+            )
+        )
+    )
     _audit(session, "gift.purged", gift)
     await session.delete(gift)
     await session.commit()
