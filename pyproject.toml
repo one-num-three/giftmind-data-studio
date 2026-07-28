@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "GiftMind data collection and maintenance studio"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.14",
     "aiosqlite>=0.20",
     "fastapi>=0.115",
     "itsdangerous>=2.2",
@@ -20,6 +21,7 @@ dependencies = [
 dev = [
     "httpx>=0.28",
     "pytest>=8.3",
+    "pytest-asyncio>=0.26",
 ]
 
 [tool.pytest.ini_options]
