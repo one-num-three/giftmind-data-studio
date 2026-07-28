@@ -1,33 +1,18 @@
-import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from itsdangerous import BadData, URLSafeTimedSerializer
 
 
-_PASSCODE_HASHER = PasswordHasher()
 _SESSION_SALT = "giftmind-session"
-
-
-def hash_passcode(raw: str) -> str:
-    return _PASSCODE_HASHER.hash(raw)
-
-
-def verify_passcode(raw: str, encoded: str) -> bool:
-    try:
-        return _PASSCODE_HASHER.verify(encoded, raw)
-    except (InvalidHashError, VerificationError, VerifyMismatchError):
-        return False
+_SESSION_DURATION = timedelta(days=7)
 
 
 def create_session_token(session_id: UUID, expires_at: datetime, secret: str) -> str:
     return _serializer(secret).dumps(
         {
             "sid": str(session_id),
-            "exp": expires_at.astimezone(UTC).isoformat(),
-            "csrf": secrets.token_urlsafe(32),
+            "iat": (expires_at.astimezone(UTC) - _SESSION_DURATION).isoformat(),
         }
     )
 
@@ -35,13 +20,16 @@ def create_session_token(session_id: UUID, expires_at: datetime, secret: str) ->
 def read_session_token(token: str, secret: str) -> dict[str, str] | None:
     try:
         payload = _serializer(secret).loads(token)
-        expires_at = datetime.fromisoformat(payload["exp"])
+        issued_at = datetime.fromisoformat(payload["iat"])
         UUID(payload["sid"])
+        if issued_at.tzinfo is None:
+            return None
+        expires_at = issued_at.astimezone(UTC) + _SESSION_DURATION
         if expires_at <= datetime.now(UTC):
             return None
-        if not isinstance(payload["csrf"], str):
+        if set(payload) != {"sid", "iat"}:
             return None
-        return payload
+        return {"sid": payload["sid"], "expires_at": expires_at.isoformat()}
     except (BadData, KeyError, TypeError, ValueError):
         return None
 

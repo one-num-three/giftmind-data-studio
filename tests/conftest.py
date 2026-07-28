@@ -4,7 +4,7 @@ from backend.app.core.config import Settings
 
 
 os.environ.setdefault("APP_SECRET", "")
-os.environ.setdefault("TEAM_PASSCODE_HASH", "")
+os.environ.setdefault("TEAM_PASSCODE", "")
 
 
 def pytest_configure() -> None:
@@ -16,4 +16,4 @@ import pytest
 
 @pytest.fixture
 def test_settings() -> Settings:
-    return Settings(app_secret="", team_passcode_hash="")
+    return Settings(app_secret="", team_passcode="")

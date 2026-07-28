@@ -18,7 +18,7 @@ def test_health_reports_schema_version(test_settings):
 def test_app_module_rejects_missing_required_settings():
     environment = os.environ.copy()
     environment.pop("APP_SECRET", None)
-    environment.pop("TEAM_PASSCODE_HASH", None)
+    environment.pop("TEAM_PASSCODE", None)
     script = "from backend.app.main import app"
 
     result = subprocess.run(
@@ -33,4 +33,4 @@ def test_app_module_rejects_missing_required_settings():
     assert result.returncode != 0
     assert "ValidationError" in result.stderr
     assert "app_secret" in result.stderr
-    assert "team_passcode_hash" in result.stderr
+    assert "team_passcode" in result.stderr
