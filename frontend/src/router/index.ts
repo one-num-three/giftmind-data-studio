@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import AppShell from "../components/layout/AppShell.vue";
 import DashboardView from "../views/DashboardView.vue";
+import GiftWorkbenchView from "../views/GiftWorkbenchView.vue";
 import LoginView from "../views/LoginView.vue";
 import { useSessionStore } from "../stores/session";
 
@@ -28,6 +29,17 @@ const router = createRouter({
           path: "",
           name: "dashboard",
           component: DashboardView,
+        },
+        {
+          path: "gifts/new",
+          name: "gift-create",
+          component: GiftWorkbenchView,
+        },
+        {
+          path: "gifts/:giftId",
+          name: "gift-edit",
+          component: GiftWorkbenchView,
+          props: (route) => ({ giftId: route.params.giftId }),
         },
       ],
     },
