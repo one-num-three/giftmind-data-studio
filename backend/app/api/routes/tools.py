@@ -50,6 +50,36 @@ class AIInput(APIModel):
     gift_type_code: str = "product"
 
 
+class DeepSeekKeyInput(APIModel):
+    api_key: Annotated[str, Field(min_length=10, max_length=256, pattern=r"^\S+$")]
+
+
+@router.get("/settings/deepseek")
+async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
+    settings = get_settings()
+    return {"configured": bool(settings.deepseek_api_key), "model": "deepseek-chat"}
+
+
+@router.put("/settings/deepseek")
+async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) -> dict[str, object]:
+    env_path = Path(".env")
+    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    replacement = f"DEEPSEEK_API_KEY={payload.api_key}"
+    output: list[str] = []
+    replaced = False
+    for line in lines:
+        if line.startswith("DEEPSEEK_API_KEY="):
+            output.append(replacement)
+            replaced = True
+        else:
+            output.append(line)
+    if not replaced:
+        output.append(replacement)
+    env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    get_settings.cache_clear()
+    return {"configured": True, "model": "deepseek-chat"}
+
+
 @router.get("/custom-fields")
 async def list_custom_fields(session: DatabaseSession, _auth: ProtectedSession) -> list[dict]:
     rows = (await session.execute(select(CustomFieldDefinition).order_by(CustomFieldDefinition.created_at))).scalars().all()
