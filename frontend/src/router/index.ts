@@ -6,6 +6,7 @@ import GiftListView from "../views/GiftListView.vue";
 import GiftWorkbenchView from "../views/GiftWorkbenchView.vue";
 import LoginView from "../views/LoginView.vue";
 import RecycleBinView from "../views/RecycleBinView.vue";
+import ToolsView from "../views/ToolsView.vue";
 import { useSessionStore } from "../stores/session";
 
 declare module "vue-router" {
@@ -53,6 +54,7 @@ const router = createRouter({
           name: "recycle-bin",
           component: RecycleBinView,
         },
+        { path: "tools", name: "tools", component: ToolsView },
       ],
     },
   ],

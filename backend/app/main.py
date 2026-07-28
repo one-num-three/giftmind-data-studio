@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.api.router import api_router
 from backend.app.core.config import Settings, get_settings
@@ -23,6 +24,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved
     app.state.session_factory = session_factory
     app.include_router(api_router)
+    resolved.upload_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=resolved.upload_dir), name="uploads")
 
     @app.get("/api/health")
     async def health() -> dict[str, str | int]:

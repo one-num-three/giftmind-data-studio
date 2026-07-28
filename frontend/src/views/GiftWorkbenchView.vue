@@ -12,6 +12,7 @@
         <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" />
         <ActivityFieldsSection v-else v-model="draft.activityDetails" />
         <OfferEditor v-model="draft" /><BundleEditor v-model="draft" :exclude-gift-id="giftId" />
+        <ImageManager v-if="store.giftId" :gift-id="store.giftId" />
         <div class="actions"><button type="button" @click="saveDraft">保存草稿</button><button type="submit">保存并继续</button><button data-action="save-next" type="button" @click="saveAndCreateNext">保存并新建下一条</button></div>
       </form>
       <QualityPanel class="workbench__quality" :draft="draft" />
@@ -31,6 +32,7 @@ import { useUnsavedChanges } from "../composables/useUnsavedChanges";
 import { createActivityDraft, createActivityDetails, createProductDetails, useWorkbenchStore, validateGiftDraft } from "../stores/workbench";
 import ActivityFieldsSection from "../components/gifts/ActivityFieldsSection.vue";
 import BundleEditor from "../components/gifts/BundleEditor.vue";
+import ImageManager from "../components/gifts/ImageManager.vue";
 import CommonFieldsSection from "../components/gifts/CommonFieldsSection.vue";
 import GiftTypeSelector from "../components/gifts/GiftTypeSelector.vue";
 import OfferEditor from "../components/gifts/OfferEditor.vue";

@@ -4,7 +4,7 @@
       <div class="shell__bar">
         <RouterLink class="shell__brand" :to="{ name: 'dashboard' }">GiftMind</RouterLink>
         <div class="shell__context">
-          <span>数据工作台</span>
+          <RouterLink to="/tools">数据工具</RouterLink><span>数据工作台</span>
           <button class="shell__logout" type="button" @click="handleLogout">退出</button>
         </div>
       </div>
