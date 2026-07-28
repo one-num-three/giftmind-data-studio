@@ -120,7 +120,20 @@ describe("GiftWorkbenchView", () => {
     expect(wrapper.get('[data-duplicate-feedback]').text()).toContain("黄铜书签");
   });
 
-  it("shows a near-duplicate warning before saving a new gift", async () => {
+  it("shows a near-duplicate warning when saving and continuing a new gift", async () => {
+    apiRequest.mockImplementation((path: string) => path.startsWith("/api/gifts/duplicates")
+      ? Promise.resolve({ matches: [{ canonical_name: "黄铜书签", exact: false, similarity: 0.9 }] })
+      : Promise.resolve({ id: "saved-gift", giftTypeCode: "product" }));
+    const wrapper = mountWorkbench();
+    await flushPromises();
+    await wrapper.get('[data-field="canonical-name"]').setValue("黄铜书签新版");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.get('[data-duplicate-feedback]').text()).toContain("相近记录：黄铜书签");
+  });
+
+  it("clears duplicate feedback after saving and creating the next blank record", async () => {
     apiRequest.mockImplementation((path: string) => path.startsWith("/api/gifts/duplicates")
       ? Promise.resolve({ matches: [{ canonical_name: "黄铜书签", exact: false, similarity: 0.9 }] })
       : Promise.resolve({ id: "saved-gift", giftTypeCode: "product" }));
@@ -130,7 +143,8 @@ describe("GiftWorkbenchView", () => {
     await wrapper.get('[data-action="save-next"]').trigger("click");
     await flushPromises();
 
-    expect(wrapper.get('[data-duplicate-feedback]').text()).toContain("相近记录：黄铜书签");
+    expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("");
+    expect(wrapper.find('[data-duplicate-feedback]').exists()).toBe(false);
   });
 
   it("restores a matching local draft only after the user chooses restore", async () => {

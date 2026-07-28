@@ -101,6 +101,7 @@ async function save(kind: "draft" | "continue" | "next") {
     else if (kind === "continue") await store.saveAndContinue();
     else await store.saveAndCreateNext();
     clearDraft();
+    if (kind === "next") duplicateMatches.value = [];
   } catch (error) {
     duplicateMatches.value = duplicateMatchesFrom(error);
     saveErrors.value = duplicateMatches.value.length ? ["保存时发现重复记录，请查看提示并调整后重试。"] : [error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试。"];
