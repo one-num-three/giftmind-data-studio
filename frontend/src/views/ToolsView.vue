@@ -15,7 +15,8 @@ import type { GiftTypeCode } from "../api/gifts";
 import { createCustomField, deepSeekStatus, downloadBlob, listCustomFields, saveDeepSeekKey, suggestGift, uploadFile } from "../api/tools";
 const notice = ref(""); const fields = ref<Awaited<ReturnType<typeof listCustomFields>>>([]); const aiName = ref(""); const aiType = ref<GiftTypeCode>("product"); const aiResult = ref<unknown>(null); const deepSeekKey = ref(""); const keyStatus = ref("检查中…"); const field = reactive({ machineKey: "", displayName: "", valueType: "text" });
 async function loadFields() { fields.value = await listCustomFields(); }
-async function saveKey() { if (!deepSeekKey.value.trim()) return; const result = await saveDeepSeekKey(deepSeekKey.value.trim()); deepSeekKey.value = ""; keyStatus.value = `已配置 ${result.model}`; notice.value = "DeepSeek 密钥已写入服务器 .env。"; }
+function modelLabel(model: string) { return model === "deepseek-v4-flash" ? "DeepSeek V4 Flash" : model; }
+async function saveKey() { if (!deepSeekKey.value.trim()) return; const result = await saveDeepSeekKey(deepSeekKey.value.trim()); deepSeekKey.value = ""; keyStatus.value = `已配置 · ${modelLabel(result.model)}`; notice.value = "DeepSeek 密钥已写入服务器 .env。"; }
 async function runAI() { if (!aiName.value.trim()) return; aiResult.value = await suggestGift(aiName.value, aiType.value); }
 async function addField() { if (!field.machineKey || !field.displayName) return; await createCustomField({ machineKey: field.machineKey, displayName: field.displayName, valueType: field.valueType, cardinality: "single" }); notice.value = "自定义字段已添加。"; field.machineKey = ""; field.displayName = ""; await loadFields(); }
 async function download(path: string, name: string) { const blob = await downloadBlob(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url); }
@@ -23,7 +24,7 @@ async function importExcel(event: Event) { const file = (event.target as HTMLInp
 async function restoreBackup(event: Event) { const file = (event.target as HTMLInputElement).files?.[0]; if (file) { const result = await uploadFile("/api/restore", file); notice.value = `恢复完成：${result.restored ?? 0} 条。`; } }
 onMounted(async () => {
   try { await loadFields(); } catch { notice.value = "字段列表暂时无法加载，其他工具仍可使用。"; }
-  try { const result = await deepSeekStatus(); keyStatus.value = result.configured ? `已配置 ${result.model}` : "尚未配置"; } catch { keyStatus.value = "暂时无法读取状态"; }
+  try { const result = await deepSeekStatus(); keyStatus.value = `${result.configured ? "已配置" : "尚未配置"} · ${modelLabel(result.model)}`; } catch { keyStatus.value = "暂时无法读取状态"; }
 });
 </script>
 

@@ -35,6 +35,7 @@ describe("GiftWorkbenchView", () => {
 
     await wrapper.get('[data-type="product"]').trigger("click");
 
+    expect(wrapper.find('[data-image-input]').exists()).toBe(true);
     expect(wrapper.find('[data-section="product"]').exists()).toBe(true);
     expect(wrapper.find('[data-section="activity"]').exists()).toBe(false);
   });
@@ -189,5 +190,68 @@ describe("GiftWorkbenchView", () => {
 
     expect(apiRequest).toHaveBeenCalledWith("/api/gifts", expect.objectContaining({ method: "POST" }));
     expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("");
+  });
+
+  it("creates the gift before uploading queued images and only then starts the next record", async () => {
+    const callOrder: string[] = [];
+    apiRequest.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path.startsWith("/api/gifts/duplicates")) return Promise.resolve({ matches: [] });
+      if (path === "/api/gifts" && options?.method === "POST") {
+        callOrder.push("create-gift");
+        return Promise.resolve({ id: "saved-gift", giftTypeCode: "product" });
+      }
+      return Promise.resolve({});
+    });
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:front.jpg"),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, options?: RequestInit) => {
+      if (options?.method === "POST") callOrder.push("upload-image");
+      return { ok: true, json: async () => options?.method === "POST" ? { id: "image-1" } : [] };
+    }));
+    const wrapper = mountWorkbench();
+    await flushPromises();
+    await wrapper.get('[data-field="canonical-name"]').setValue("黄铜书签");
+    const input = wrapper.get('[data-image-input]').element as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["image"], "front.jpg", { type: "image/jpeg" })] });
+    await wrapper.get('[data-image-input]').trigger("change");
+    await wrapper.get('[data-action="save-next"]').trigger("click");
+    await flushPromises();
+
+    expect(callOrder).toEqual(["create-gift", "upload-image"]);
+    expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("");
+    expect(wrapper.findAll("[data-pending-image]")).toHaveLength(0);
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+  });
+
+  it("retains the saved gift form and failed image for retry", async () => {
+    apiRequest.mockImplementation((path: string) => path.startsWith("/api/gifts/duplicates")
+      ? Promise.resolve({ matches: [] })
+      : Promise.resolve({ id: "saved-gift", giftTypeCode: "product" }));
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn(() => "blob:front.jpg"),
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal("fetch", vi.fn(async (_path: string, options?: RequestInit) => options?.method === "POST"
+      ? { ok: false, json: async () => ({ detail: "存储暂不可用" }) }
+      : { ok: true, json: async () => [] }));
+    const wrapper = mountWorkbench();
+    await flushPromises();
+    await wrapper.get('[data-field="canonical-name"]').setValue("黄铜书签");
+    const input = wrapper.get('[data-image-input]').element as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [new File(["image"], "front.jpg", { type: "image/jpeg" })] });
+    await wrapper.get('[data-image-input]').trigger("change");
+    await wrapper.get('[data-action="save-next"]').trigger("click");
+    await flushPromises();
+
+    expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("黄铜书签");
+    expect(wrapper.findAll("[data-pending-image]")).toHaveLength(1);
+    expect(wrapper.get("[data-save-errors]").text()).toContain("礼物已保存，但图片上传失败");
+    wrapper.unmount();
+    vi.unstubAllGlobals();
   });
 });

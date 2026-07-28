@@ -12,7 +12,7 @@
         <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" />
         <ActivityFieldsSection v-else v-model="draft.activityDetails" />
         <OfferEditor v-model="draft" /><BundleEditor v-model="draft" :exclude-gift-id="giftId" />
-        <ImageManager v-if="store.giftId" :gift-id="store.giftId" />
+        <ImageManager ref="imageManager" :gift-id="store.giftId ?? undefined" />
         <div class="actions"><button type="button" @click="saveDraft">保存草稿</button><button type="submit">保存并继续</button><button data-action="save-next" type="button" @click="saveAndCreateNext">保存并新建下一条</button></div>
       </form>
       <QualityPanel class="workbench__quality" :draft="draft" />
@@ -49,6 +49,7 @@ const draftEnabled = computed(() => !store.saving);
 const editingExisting = computed(() => Boolean(props.giftId || store.giftId));
 const { restoredDraft, restoreDraft, discardDraft, clearDraft } = useDraft(draftGiftId, draft, draftEnabled);
 const pendingType = ref<GiftTypeCode | null>(null);
+const imageManager = ref<{ uploadPending: (giftId: string) => Promise<void>; clearPending: () => void } | null>(null);
 const saveErrors = ref<string[]>([]);
 const duplicateMatches = ref<DuplicateMatch[]>([]);
 const sections = ["Basic", "Type Confirmation", "Matching", "Type-Specific Details", "Concrete Channels", "Content & Quality"];
@@ -137,15 +138,24 @@ async function validateBeforeSave(): Promise<boolean> {
 }
 async function save(kind: "draft" | "continue" | "next") {
   if (!await validateBeforeSave()) return;
+  let giftSaved = false;
   try {
-    if (kind === "draft") await store.saveDraft();
-    else if (kind === "continue") await store.saveAndContinue();
-    else await store.saveAndCreateNext();
+    const saved = await store.saveDraft();
+    giftSaved = true;
+    await imageManager.value?.uploadPending(saved.id);
+    if (kind === "next") {
+      imageManager.value?.clearPending();
+      store.startNew();
+    }
     clearDraft();
     if (kind === "next") duplicateMatches.value = [];
   } catch (error) {
     duplicateMatches.value = duplicateMatchesFrom(error);
-    saveErrors.value = duplicateMatches.value.length ? ["保存时发现重复记录，请查看提示并调整后重试。"] : [error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试。"];
+    if (giftSaved) {
+      saveErrors.value = [error instanceof Error ? `礼物已保存，但图片上传失败：${error.message}` : "礼物已保存，但图片上传失败，请重试。"];
+    } else {
+      saveErrors.value = duplicateMatches.value.length ? ["保存时发现重复记录，请查看提示并调整后重试。"] : [error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试。"];
+    }
   }
 }
 async function saveDraft() { await save("draft"); }

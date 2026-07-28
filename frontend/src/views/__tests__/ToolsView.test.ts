@@ -11,8 +11,8 @@ describe("tools view DeepSeek settings", () => {
   it("shows configuration status and saves the key without keeping it in the input", async () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.resolve([]);
-      if (path === "/api/settings/deepseek") return Promise.resolve({ configured: false, model: "deepseek-chat" });
-      return Promise.resolve({ configured: true, model: "deepseek-chat" });
+      if (path === "/api/settings/deepseek") return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
+      return Promise.resolve({ configured: true, model: "deepseek-v4-flash" });
     });
 
     const wrapper = mount(ToolsView);
@@ -20,7 +20,7 @@ describe("tools view DeepSeek settings", () => {
 
     const input = wrapper.get('[data-field="deepseek-key"]');
     expect(input.attributes("type")).toBe("password");
-    expect(wrapper.text()).toContain("尚未配置");
+    expect(wrapper.text()).toContain("尚未配置 · DeepSeek V4 Flash");
 
     await input.setValue("sk-preview-secret-12345");
     await wrapper.get('[data-action="save-deepseek-key"]').trigger("click");
@@ -31,18 +31,18 @@ describe("tools view DeepSeek settings", () => {
       body: { apiKey: "sk-preview-secret-12345" },
     });
     expect((input.element as HTMLInputElement).value).toBe("");
-    expect(wrapper.text()).toContain("已配置 deepseek-chat");
+    expect(wrapper.text()).toContain("已配置 · DeepSeek V4 Flash");
   });
 
   it("still checks the key status when the custom-field list is unavailable", async () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.reject(new Error("field service unavailable"));
-      return Promise.resolve({ configured: false, model: "deepseek-chat" });
+      return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
     });
 
     const wrapper = mount(ToolsView);
     await flushPromises();
 
-    expect(wrapper.text()).toContain("尚未配置");
+    expect(wrapper.text()).toContain("尚未配置 · DeepSeek V4 Flash");
   });
 });

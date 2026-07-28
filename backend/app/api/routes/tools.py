@@ -32,6 +32,7 @@ from backend.app.schemas.gift import GiftCreate
 router = APIRouter(prefix="/api", tags=["tools"])
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 ProtectedSession = Annotated[SessionContext, Depends(require_session)]
+DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 
 class CustomFieldInput(APIModel):
@@ -60,7 +61,7 @@ class DeepSeekKeyInput(APIModel):
 async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
     get_settings.cache_clear()
     settings = get_settings()
-    return {"configured": bool(settings.deepseek_api_key), "model": "deepseek-chat"}
+    return {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL}
 
 
 @router.put("/settings/deepseek")
@@ -80,7 +81,7 @@ async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) 
         output.append(replacement)
     env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
     get_settings.cache_clear()
-    return {"configured": True, "model": "deepseek-chat"}
+    return {"configured": True, "model": DEEPSEEK_MODEL}
 
 
 @router.get("/custom-fields")
@@ -131,7 +132,7 @@ async def suggest_with_ai(payload: AIInput, session: DatabaseSession, _auth: Pro
         prompt = _suggestion_prompt(selected_type)
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": "deepseek-chat", "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
+                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": DEEPSEEK_MODEL, "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
                 suggestion = _normalize_ai_suggestion(_parse_json_object(content), suggestion, selected_type)

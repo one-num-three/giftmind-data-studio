@@ -29,15 +29,17 @@ def test_deepseek_key_can_be_saved_to_env_without_echoing_it(tmp_path, monkeypat
         status_response = client.get("/api/settings/deepseek")
 
     assert response.status_code == 200
-    assert response.json() == {"configured": True, "model": "deepseek-chat"}
+    assert response.json() == {"configured": True, "model": "deepseek-v4-flash"}
     assert "sk-preview-secret-12345" not in response.text
     assert status_response.status_code == 200
-    assert status_response.json() == {"configured": True, "model": "deepseek-chat"}
+    assert status_response.json() == {"configured": True, "model": "deepseek-v4-flash"}
     assert "sk-preview-secret-12345" in env_path.read_text(encoding="utf-8")
     assert "sk-preview-secret-12345" not in status_response.text
 
 
 def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch):
+    captured_request = {}
+
     class FakeResponse:
         def raise_for_status(self):
             return None
@@ -72,6 +74,7 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
             return None
 
         async def post(self, *_args, **_kwargs):
+            captured_request.update(_kwargs)
             return FakeResponse()
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-complete-prefill")
@@ -92,3 +95,4 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
     assert payload["whyTemplate"].startswith("适合送给")
     assert payload["recipientTypes"] == ["朋友"]
     assert payload["productDetails"]["materials"] == ["金属"]
+    assert captured_request["json"]["model"] == "deepseek-v4-flash"
