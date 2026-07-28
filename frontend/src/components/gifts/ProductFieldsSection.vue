@@ -1,11 +1,12 @@
 <template>
   <section class="section" data-section="product" aria-labelledby="product-title">
     <h2 id="product-title">Type-Specific Details · 商品</h2>
-    <label>商品形态<select v-model="modelValue.productForm"><option value="physical">实物</option><option value="digital">数字商品</option><option value="hybrid">混合</option></select></label>
+    <label>商品形态<select data-product-form :value="modelValue.productForm" @change="setProductForm"><option value="physical">实物</option><option value="digital">数字商品</option><option value="hybrid">混合</option></select></label>
     <label>通用商品名<input v-model="modelValue.genericProductName" /></label>
     <label>材质（逗号分隔）<input data-product-materials :value="modelValue.materials.join(', ')" @change="setMaterials" /></label>
     <label><input v-model="modelValue.shippingRequired" type="checkbox" /> 需要配送</label>
-    <label v-if="modelValue.productForm !== 'physical'">数字交付方式<input v-model="modelValue.digitalDeliveryMethod" placeholder="下载链接、兑换码…" /></label>
+    <label>个性化方式（逗号分隔）<input data-personalization-methods :value="(modelValue.personalizationMethods ?? []).join(', ')" @change="setPersonalizationMethods" /></label>
+    <label v-if="modelValue.productForm !== 'physical'">数字交付方式<input data-digital-delivery v-model="modelValue.digitalDeliveryMethod" placeholder="下载链接、兑换码…" /></label>
   </section>
 </template>
 
@@ -15,6 +16,12 @@ import type { ProductDetailsInput } from "../../api/gifts";
 const modelValue = defineModel<ProductDetailsInput>({ required: true });
 function setMaterials(event: Event) {
   modelValue.value.materials = (event.target as HTMLInputElement).value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+function setProductForm(event: Event) {
+  modelValue.value = { ...modelValue.value, productForm: (event.target as HTMLSelectElement).value as ProductDetailsInput["productForm"] };
+}
+function setPersonalizationMethods(event: Event) {
+  modelValue.value.personalizationMethods = (event.target as HTMLInputElement).value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 </script>
 

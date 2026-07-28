@@ -16,7 +16,7 @@ const missing = computed(() => {
     ["适合对象", props.draft.recipientTypes.length > 0],
     ["适合场景", props.draft.occasions.length > 0],
     ["价格范围", props.draft.priceMin !== null && props.draft.priceMax !== null],
-    ["送礼理由", Boolean(props.draft.whyTemplate.trim())],
+    ["送礼理由", Boolean(props.draft.whyTemplate?.trim())],
   ];
   if (props.draft.giftTypeCode === "product") {
     fields.push(["商品形态", Boolean(props.draft.productDetails.productForm)], ["通用商品名", Boolean(props.draft.productDetails.genericProductName)], ["材质", props.draft.productDetails.materials.length > 0], ["配送方式", props.draft.productDetails.shippingRequired !== undefined]);

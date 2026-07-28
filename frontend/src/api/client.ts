@@ -7,6 +7,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    public readonly detail?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -38,7 +39,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
 
     const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
     const message = typeof payload?.detail === "string" ? payload.detail : "请求未能完成。";
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, payload?.detail);
   }
 
   if (response.status === 204) {
