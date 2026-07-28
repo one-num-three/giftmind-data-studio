@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a persistent, per-gift AI chat assistant that turns text and public links into reviewable field patches without directly saving gift records.
+**Goal:** Build a persistent, per-gift AI chat assistant that turns text, public links, and preprocessed images into reviewable field patches without directly saving gift records.
 
 **Architecture:** FastAPI persists threads, messages, and suggestion runs in three new tables. A focused extraction service fetches bounded public HTML, and a suggestion service converts DeepSeek or fallback output into a strict field whitelist. Vue renders a floating chat drawer and sends accepted patches to the workbench, which owns field mutation, undo, and highlights.
 
-**Tech Stack:** Python 3.13, FastAPI, SQLAlchemy async, Alembic, httpx, Vue 3, Pinia, TypeScript, Vitest.
+**Tech Stack:** Python 3.11+, FastAPI, SQLAlchemy async, Alembic, httpx, optional PaddleOCR, Vue 3, Pinia, TypeScript, Vitest.
 
 ## Global Constraints
 
@@ -16,7 +16,9 @@
 - Link extraction accepts at most 3 public HTTP/HTTPS URLs, 1MB each, with a 10-second timeout.
 - Unknown patch paths are discarded.
 - High confidence means `confidence >= 0.8`.
-- Image OCR and vision are not simulated in this phase; attachment arrays remain empty.
+- Up to 4 images are preprocessed by optional local OCR and/or a configured vision endpoint.
+- DeepSeek receives only extracted text and stays fixed to `deepseek-v4-flash`.
+- AI and batch analysis never save gifts without human review.
 
 ---
 
@@ -243,7 +245,19 @@ Run: `npm run test -- --run src/components/assistant/__tests__/AISelectionAssist
 
 Expected: PASS.
 
-### Task 6: Full verification and delivery
+### Task 6: Complete image, batch, and review workflows
+
+- [x] Add multi-image upload to each independent assistant thread.
+- [x] Add optional local PaddleOCR and configurable vision preprocessing.
+- [x] Keep image binary data out of DeepSeek requests.
+- [x] Add source labels, apply all, high-confidence apply, clear, undo, and field highlights.
+- [x] Add active follow-up questions.
+- [x] Add batch link analysis for up to 20 URLs with human-review handoff.
+- [x] Add exact/near duplicate feedback and a full-database duplicate scanner.
+- [x] Persist draft identity and assistant history across refreshes.
+- [x] Update the in-process DeepSeek key after saving it to `.env`.
+
+### Task 7: Full verification and delivery
 
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-28-ai-selection-assistant.md`
@@ -251,13 +265,13 @@ Expected: PASS.
 **Interfaces:**
 - Produces: verified local preview and pushed GitHub commit
 
-- [ ] **Step 1: Run backend verification**
+- [x] **Step 1: Run backend verification**
 
 Run: `python -m pytest -q`
 
 Expected: all tests PASS.
 
-- [ ] **Step 2: Run frontend verification**
+- [x] **Step 2: Run frontend verification**
 
 Run: `npm run test`
 
@@ -267,7 +281,7 @@ Run: `npm run build`
 
 Expected: all commands PASS.
 
-- [ ] **Step 3: Run browser workflow**
+- [x] **Step 3: Run browser workflow**
 
 Create a new gift, expand the assistant, send a text/link message, apply a high-confidence field, verify form highlight, edit the field manually, verify highlight clears, save the gift, and verify the thread remains bound and reloadable.
 
@@ -275,7 +289,6 @@ Create a new gift, expand the assistant, send a text/link message, apply a high-
 
 ```bash
 git add backend frontend tests docs
-git commit -m "feat: add persistent AI selection assistant"
-git push origin main
+git commit -m "feat: complete AI-assisted gift collection workflow"
+git push origin agent/ai-selection-assistant
 ```
-

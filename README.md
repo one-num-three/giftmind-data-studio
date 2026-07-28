@@ -14,7 +14,7 @@ GiftMind 的数据采集与维护工作台。它为礼物条目、素材、导�
 
 ## 本地启动
 
-后端需要 Python 3.13 或更高版本：
+后端需要 Python 3.11 或更高版本：
 
 ```powershell
 python -m venv .venv
@@ -26,6 +26,24 @@ uvicorn backend.app.main:app --reload
 
 在 `.env` 中填写 `DEEPSEEK_API_KEY` 后，AI 助手固定调用
 `deepseek-v4-flash`。图片最多 4 张、每张不超过 8MB。
+
+图片不会直接交给 DeepSeek。服务器会先尝试 PaddleOCR：
+
+```powershell
+pip install -e ".[ocr]"
+```
+
+如果还要识别没有文字的普通商品图片，可在 `.env` 配置一个兼容
+OpenAI 图片消息格式的视觉模型：
+
+```dotenv
+VISION_API_KEY=
+VISION_BASE_URL=
+VISION_MODEL=
+```
+
+OCR 文字和视觉描述会作为资料来源交给 DeepSeek 做结构化字段判断；
+没有配置图片处理器时，助手会明确提示图片未能识别，不会假装看懂。
 
 另开一个终端启动前端：
 

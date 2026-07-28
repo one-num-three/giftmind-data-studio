@@ -1,11 +1,25 @@
 import { ApiError, apiRequest } from "./client";
 
 export interface AssistantAttachment { id: string; name: string; mimeType: string; url: string; }
-export interface AssistantMessage { id: string; role: "user" | "assistant"; content: string; attachments: AssistantAttachment[]; }
-export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; status: "pending" | "applied" | "ignored"; }
+export interface AssistantMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  attachments: AssistantAttachment[];
+  sourceRefs?: Array<{ label?: string; url?: string; status?: string; error?: string }>;
+}
+export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; sourceRefs?: string[]; status: "pending" | "applied" | "ignored"; }
 export interface SuggestionRun { id: string; patches: FieldPatch[]; appliedFields: string[]; ignoredFields: string[]; source?: "deepseek" | "rule"; }
 export interface AssistantThread { id: string; giftId?: string | null; messages: AssistantMessage[]; suggestionRuns: SuggestionRun[]; }
 export interface AssistantTurn { userMessage: AssistantMessage; assistantMessage: AssistantMessage; suggestionRun: SuggestionRun; }
+export interface BatchLinkItem {
+  url: string;
+  status: string;
+  suggestedName: string;
+  patches: FieldPatch[];
+  duplicates: Array<{ gift_id?: string; canonical_name: string; exact: boolean; similarity: number }>;
+  questions?: string[];
+}
 
 export function createAssistantThread(draftId: string, giftId?: string | null) {
   return apiRequest<AssistantThread>("/api/ai/threads", { method: "POST", body: { draftId, giftId } });
@@ -32,4 +46,11 @@ export function reviewSuggestionRun(runId: string, appliedFields: string[], igno
 
 export function bindAssistantThread(threadId: string, giftId: string) {
   return apiRequest<AssistantThread>(`/api/ai/threads/${threadId}/bind`, { method: "PATCH", body: { giftId } });
+}
+
+export function analyzeBatchLinks(urls: string[], giftTypeCode: string) {
+  return apiRequest<{ items: BatchLinkItem[]; count: number }>("/api/ai/batch-links", {
+    method: "POST",
+    body: { urls, giftTypeCode },
+  });
 }

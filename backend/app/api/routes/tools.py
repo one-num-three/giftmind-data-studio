@@ -12,7 +12,7 @@ from typing import Annotated
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from pydantic import Field
@@ -65,7 +65,7 @@ async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
 
 
 @router.put("/settings/deepseek")
-async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) -> dict[str, object]:
+async def save_deepseek_key(payload: DeepSeekKeyInput, request: Request, _auth: ProtectedSession) -> dict[str, object]:
     env_path = Path(".env")
     lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
     replacement = f"DEEPSEEK_API_KEY={payload.api_key}"
@@ -80,6 +80,7 @@ async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) 
     if not replaced:
         output.append(replacement)
     env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    request.app.state.settings.deepseek_api_key = payload.api_key
     get_settings.cache_clear()
     return {"configured": True, "model": DEEPSEEK_MODEL}
 

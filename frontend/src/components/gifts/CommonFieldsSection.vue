@@ -2,21 +2,21 @@
   <section class="section" data-section="common" aria-labelledby="basic-title">
     <h2 id="basic-title">Basic</h2><button class="ai-button" type="button" :disabled="aiBusy || !modelValue.canonicalName.trim()" @click="runAI">{{ aiBusy ? 'AI 判断中…' : '用 DeepSeek 帮我预填' }}</button><small v-if="aiNotice" data-ai-status class="ai-notice">{{ aiNotice }}</small>
     <div v-if="aiSuggestion" class="ai-summary" data-ai-summary><strong>这次会填入</strong><span>建议类型：{{ aiSuggestion.recommendedGiftTypeCode === 'activity' ? '活动' : '商品' }}</span><span>价格：{{ priceLabel }}</span><span>适合：{{ aiSuggestion.recipientTypes.join('、') || '待确认' }}</span><span>场景：{{ aiSuggestion.occasions.join('、') || '待确认' }}</span><span v-if="aiSuggestion.typeReason">{{ aiSuggestion.typeReason }}</span></div>
-    <label>标准名称<input data-field="canonical-name" v-model="modelValue.canonicalName" required /></label>
-    <label>简短说明<textarea data-field="short-description" v-model="modelValue.shortDescription" rows="2" /></label>
+    <label :class="{ 'ai-highlight': highlighted('canonicalName') }">标准名称<input data-field="canonical-name" v-model="modelValue.canonicalName" required /></label>
+    <label :class="{ 'ai-highlight': highlighted('shortDescription') }">简短说明<textarea data-field="short-description" v-model="modelValue.shortDescription" rows="2" /></label>
     <div class="fields fields--two">
-      <label>最低价格<input data-field="price-min" v-model.number="modelValue.priceMin" type="number" min="0" /></label>
-      <label>最高价格<input data-field="price-max" v-model.number="modelValue.priceMax" type="number" min="0" /></label>
+      <label :class="{ 'ai-highlight': highlighted('priceMin') }">最低价格<input data-field="price-min" v-model.number="modelValue.priceMin" type="number" min="0" /></label>
+      <label :class="{ 'ai-highlight': highlighted('priceMax') }">最高价格<input data-field="price-max" v-model.number="modelValue.priceMax" type="number" min="0" /></label>
     </div>
-    <label>送礼理由<textarea data-field="why-template" v-model="modelValue.whyTemplate" rows="3" /></label>
+    <label :class="{ 'ai-highlight': highlighted('whyTemplate') }">送礼理由<textarea data-field="why-template" v-model="modelValue.whyTemplate" rows="3" /></label>
   </section>
 
   <section class="section" data-section="matching" aria-labelledby="matching-title">
     <h2 id="matching-title">Matching</h2>
-    <OptionPicker label="适合对象" field="recipientTypes" :options="recipientOptions" :selected="modelValue.recipientTypes" @toggle="toggle" />
-    <OptionPicker label="适合场景" field="occasions" :options="occasionOptions" :selected="modelValue.occasions" @toggle="toggle" />
-    <OptionPicker label="兴趣标签" field="interests" :options="interestOptions" :selected="modelValue.interests" @toggle="toggle" />
-    <OptionPicker label="检索标签" field="tags" :options="tagOptions" :selected="modelValue.tags" @toggle="toggle" />
+    <OptionPicker label="适合对象" field="recipientTypes" :options="recipientOptions" :selected="modelValue.recipientTypes" :ai-highlighted="highlighted('recipientTypes')" @toggle="toggle" />
+    <OptionPicker label="适合场景" field="occasions" :options="occasionOptions" :selected="modelValue.occasions" :ai-highlighted="highlighted('occasions')" @toggle="toggle" />
+    <OptionPicker label="兴趣标签" field="interests" :options="interestOptions" :selected="modelValue.interests" :ai-highlighted="highlighted('interests')" @toggle="toggle" />
+    <OptionPicker label="检索标签" field="tags" :options="tagOptions" :selected="modelValue.tags" :ai-highlighted="highlighted('tags')" @toggle="toggle" />
   </section>
 </template>
 
@@ -29,7 +29,7 @@ import { suggestGift } from "../../api/tools";
 import type { GiftAISuggestion } from "../../api/tools";
 
 const modelValue = defineModel<CommonGiftDraft>({ required: true });
-const props = withDefaults(defineProps<{ giftTypeCode?: GiftTypeCode }>(), { giftTypeCode: "product" });
+const props = withDefaults(defineProps<{ giftTypeCode?: GiftTypeCode; highlightedFields?: string[] }>(), { giftTypeCode: "product", highlightedFields: () => [] });
 const emit = defineEmits<{ suggestion: [suggestion: GiftAISuggestion] }>();
 type ListField = "recipientTypes" | "occasions" | "interests" | "tags";
 const recipientOptions = ["自己", "伴侣", "家人", "朋友", "同事", "孩子", "长辈", "老师", "客户"];
@@ -78,6 +78,7 @@ function toggle(field: string, value: string) {
   const values = modelValue.value[key];
   modelValue.value[key] = values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
+function highlighted(path: string) { return props.highlightedFields.includes(path); }
 </script>
 
 <style scoped>
@@ -86,6 +87,7 @@ h2 { margin: 0; color: var(--color-ink); font-size: 1rem; }.ai-button { justify-
 .ai-summary { display: grid; gap: 4px; padding: 10px 12px; border-left: 3px solid var(--color-accent); color: var(--color-ink-muted); background: var(--color-surface-muted); font-size: .82rem; }.ai-summary strong { color: var(--color-ink); }
 label { display: grid; gap: 6px; color: var(--color-ink-muted); font-size: .875rem; font-weight: 700; }
 input, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-ink); background: var(--color-surface); }
+.ai-highlight input, .ai-highlight textarea { border-color: #79a98e; background: #eef8f1; box-shadow: 0 0 0 3px rgb(121 169 142 / .14); }
 .fields { display: grid; gap: 12px; }.fields--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 520px) { .fields--two { grid-template-columns: 1fr; } }
 </style>

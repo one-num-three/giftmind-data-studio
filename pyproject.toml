@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "giftmind-data-studio"
 version = "0.1.0"
 description = "GiftMind data collection and maintenance studio"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "alembic>=1.14",
     "aiosqlite>=0.20",
@@ -25,6 +25,10 @@ dev = [
     "httpx>=0.28",
     "pytest>=8.3",
     "pytest-asyncio>=0.26",
+]
+ocr = [
+    "paddleocr>=3.3",
+    "paddlepaddle>=3.2",
 ]
 
 [tool.pytest.ini_options]

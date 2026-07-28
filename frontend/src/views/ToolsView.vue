@@ -3,7 +3,9 @@
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <div class="grid"><section class="card"><h2>DeepSeek 密钥</h2><p>密钥只写入服务器 <code>.env</code>，不会显示、下载或保存到浏览器。</p><input data-field="deepseek-key" v-model="deepSeekKey" type="password" autocomplete="new-password" placeholder="粘贴 DeepSeek API Key" /><button data-action="save-deepseek-key" type="button" :disabled="!deepSeekKey.trim()" @click="saveKey">保存密钥</button><small>{{ keyStatus }}</small></section>
       <section class="card"><h2>DeepSeek 预判</h2><p>输入一个礼物名称，先查看模型建议，再回到录入页确认。</p><input v-model="aiName" placeholder="例如：南京博物院文创书签" /><select v-model="aiType"><option value="product">商品</option><option value="activity">活动</option></select><button type="button" @click="runAI">开始预判</button><pre v-if="aiResult">{{ JSON.stringify(aiResult, null, 2) }}</pre></section>
+      <section class="card card--wide"><h2>批量解析商品链接</h2><p>每行一个公开链接，最多 20 条。系统只生成待审核建议，不会直接写入数据库。</p><textarea data-batch-links v-model="batchLinks" rows="6" placeholder="https://…&#10;https://…" /><select v-model="batchType"><option value="product">商品</option><option value="activity">活动</option></select><button data-analyze-links type="button" :disabled="batchBusy || !batchLinks.trim()" @click="analyzeLinks">{{ batchBusy ? '解析中…' : '解析链接并检查重复' }}</button><div v-if="batchItems.length" class="batch-results"><article v-for="item in batchItems" :key="item.url"><strong>{{ item.suggestedName || '未识别名称' }}</strong><small>{{ item.url }}</small><p v-if="item.duplicates.some(match => match.exact)" class="danger">发现完全重复：{{ item.duplicates.find(match => match.exact)?.canonical_name }}</p><p v-else-if="item.duplicates.length" class="warning">发现相似资料：{{ item.duplicates[0].canonical_name }}</p><p v-else>未发现明显重复 · {{ item.patches.length }} 条字段建议</p><button data-review-batch-item type="button" @click="reviewBatchItem(item)">到录入页人工审核</button></article></div></section>
       <section class="card"><h2>自定义字段</h2><p>字段先定义一次，后续采集同学就能按统一格式填写。</p><div class="row"><input v-model="field.machineKey" placeholder="machine_key，如 eco_score" /><input v-model="field.displayName" placeholder="显示名称" /></div><select v-model="field.valueType"><option value="text">文本</option><option value="number">数字</option><option value="boolean">是/否</option><option value="select">选项</option></select><button type="button" @click="addField">添加字段</button><ul><li v-for="item in fields" :key="item.id">{{ item.displayName }} <small>{{ item.machineKey }} · {{ item.valueType }}</small></li></ul></section>
+      <section class="card"><h2>全库重复扫描</h2><p>同时检查完全同名和高相似度记录，不会自动删除或合并。</p><button type="button" @click="scanAllDuplicates">开始扫描</button><p v-if="duplicateScanDone && !duplicatePairs.length">未发现明显重复资料。</p><ul v-else><li v-for="pair in duplicatePairs" :key="`${pair.left.id}-${pair.right.id}`">{{ pair.left.canonical_name }} ↔ {{ pair.right.canonical_name }} <small>{{ pair.exact ? '完全重复' : `相似度 ${Math.round(pair.similarity * 100)}%` }}</small></li></ul></section>
       <section class="card"><h2>批量导入 / 导出</h2><p>Excel 第一行使用：name、type、status、description、price_min、price_max、tags。</p><button type="button" @click="download('/api/export/xlsx', 'giftmind-gifts.xlsx')">导出 Excel</button><label class="file">选择 Excel 导入<input type="file" accept=".xlsx" @change="importExcel" /></label><label class="file">恢复备份<input type="file" accept=".zip" @change="restoreBackup" /></label><button type="button" @click="download('/api/backup', 'giftmind-backup.zip')">下载备份</button></section>
     </div>
   </section>
@@ -11,9 +13,17 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import { useRouter } from "vue-router";
+import { analyzeBatchLinks } from "../api/assistant";
+import type { BatchLinkItem } from "../api/assistant";
 import type { GiftTypeCode } from "../api/gifts";
+import { scanGiftDuplicates } from "../api/gifts";
+import type { DuplicatePair } from "../api/gifts";
 import { createCustomField, deepSeekStatus, downloadBlob, listCustomFields, saveDeepSeekKey, suggestGift, uploadFile } from "../api/tools";
+const router = useRouter();
 const notice = ref(""); const fields = ref<Awaited<ReturnType<typeof listCustomFields>>>([]); const aiName = ref(""); const aiType = ref<GiftTypeCode>("product"); const aiResult = ref<unknown>(null); const deepSeekKey = ref(""); const keyStatus = ref("检查中…"); const field = reactive({ machineKey: "", displayName: "", valueType: "text" });
+const batchLinks = ref(""); const batchType = ref<GiftTypeCode>("product"); const batchBusy = ref(false); const batchItems = ref<BatchLinkItem[]>([]);
+const duplicatePairs = ref<DuplicatePair[]>([]); const duplicateScanDone = ref(false);
 async function loadFields() { fields.value = await listCustomFields(); }
 function modelLabel(model: string) { return model === "deepseek-v4-flash" ? "DeepSeek V4 Flash" : model; }
 async function saveKey() { if (!deepSeekKey.value.trim()) return; const result = await saveDeepSeekKey(deepSeekKey.value.trim()); deepSeekKey.value = ""; keyStatus.value = `已配置 · ${modelLabel(result.model)}`; notice.value = "DeepSeek 密钥已写入服务器 .env。"; }
@@ -22,6 +32,23 @@ async function addField() { if (!field.machineKey || !field.displayName) return;
 async function download(path: string, name: string) { const blob = await downloadBlob(path); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url); }
 async function importExcel(event: Event) { const file = (event.target as HTMLInputElement).files?.[0]; if (file) { const result = await uploadFile("/api/import/xlsx", file); notice.value = `导入完成：${result.imported ?? 0} 条。`; } }
 async function restoreBackup(event: Event) { const file = (event.target as HTMLInputElement).files?.[0]; if (file) { const result = await uploadFile("/api/restore", file); notice.value = `恢复完成：${result.restored ?? 0} 条。`; } }
+async function analyzeLinks() {
+  const urls = [...new Set(batchLinks.value.split(/\r?\n/).map((url) => url.trim()).filter(Boolean))].slice(0, 20);
+  if (!urls.length) return;
+  batchBusy.value = true; notice.value = "";
+  try { batchItems.value = (await analyzeBatchLinks(urls, batchType.value)).items; }
+  catch (error) { notice.value = error instanceof Error ? error.message : "批量链接解析失败。"; }
+  finally { batchBusy.value = false; }
+}
+async function reviewBatchItem(item: BatchLinkItem) {
+  sessionStorage.setItem("giftmind.batchDraft", JSON.stringify({ giftTypeCode: batchType.value, ...item }));
+  await router.push({ name: "gift-create" });
+}
+async function scanAllDuplicates() {
+  duplicateScanDone.value = false;
+  try { duplicatePairs.value = await scanGiftDuplicates(); duplicateScanDone.value = true; }
+  catch (error) { notice.value = error instanceof Error ? error.message : "重复扫描失败。"; }
+}
 onMounted(async () => {
   try { await loadFields(); } catch { notice.value = "字段列表暂时无法加载，其他工具仍可使用。"; }
   try { const result = await deepSeekStatus(); keyStatus.value = `${result.configured ? "已配置" : "尚未配置"} · ${modelLabel(result.model)}`; } catch { keyStatus.value = "暂时无法读取状态"; }
@@ -29,5 +56,5 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.tools { display: grid; gap: 20px; }.heading p { margin: 0 0 6px; color: var(--color-accent); font-size: .8rem; font-weight: 800; }.heading h1 { margin: 0 0 8px; color: var(--color-ink); }.heading span, .card p { color: var(--color-ink-muted); }.notice { padding: 10px 12px; border-radius: var(--radius-sm); color: var(--color-primary); background: #e7f3e9; }.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }.card { display: grid; align-content: start; gap: 12px; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }.card h2 { margin: 0; color: var(--color-ink); font-size: 1.1rem; }.card input, .card select { min-height: 40px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }.card button { min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); color: white; background: var(--color-primary); font-weight: 800; }.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.file { display: grid; gap: 6px; color: var(--color-primary); font-weight: 700; }.file input { padding: 8px; }.card ul { margin: 0; padding-left: 18px; color: var(--color-ink); }.card small { color: var(--color-ink-muted); }pre { overflow: auto; padding: 10px; border-radius: var(--radius-sm); background: var(--color-surface-muted); }@media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+.tools { display: grid; gap: 20px; }.heading p { margin: 0 0 6px; color: var(--color-accent); font-size: .8rem; font-weight: 800; }.heading h1 { margin: 0 0 8px; color: var(--color-ink); }.heading span, .card p { color: var(--color-ink-muted); }.notice { padding: 10px 12px; border-radius: var(--radius-sm); color: var(--color-primary); background: #e7f3e9; }.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }.card { display: grid; align-content: start; gap: 12px; padding: 20px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); }.card--wide { grid-column: span 2; }.card h2 { margin: 0; color: var(--color-ink); font-size: 1.1rem; }.card input, .card select, .card textarea { min-height: 40px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font: inherit; }.card button { min-height: 40px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); color: white; background: var(--color-primary); font-weight: 800; }.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }.file { display: grid; gap: 6px; color: var(--color-primary); font-weight: 700; }.file input { padding: 8px; }.card ul { margin: 0; padding-left: 18px; color: var(--color-ink); }.card small { color: var(--color-ink-muted); }.batch-results { display: grid; gap: 10px; }.batch-results article { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }.batch-results small { overflow: hidden; text-overflow: ellipsis; }.batch-results p { margin: 0; }.danger { color: #a62d28 !important; }.warning { color: #946516 !important; }pre { overflow: auto; padding: 10px; border-radius: var(--radius-sm); background: var(--color-surface-muted); }@media (max-width: 900px) { .grid { grid-template-columns: 1fr; }.card--wide { grid-column: auto; } }
 </style>

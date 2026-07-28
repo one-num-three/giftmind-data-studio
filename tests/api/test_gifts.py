@@ -122,3 +122,19 @@ def test_duplicate_warnings_use_a_strict_trigram_threshold(tmp_path):
         assert matches[0]["canonical_name"] == "abcdefg"
         assert matches[0]["similarity"] == 0.9091
         assert matches[0]["exact"] is False
+
+
+def test_full_library_duplicate_scan_finds_near_matches(tmp_path):
+    with create_client(tmp_path) as client:
+        login(client)
+        assert client.post("/api/gifts", json=product_payload("abcdefg")).status_code == 201
+        assert client.post("/api/gifts", json=product_payload("abcdefgX")).status_code == 201
+        assert client.post("/api/gifts", json=product_payload("陶艺体验")).status_code == 201
+
+        response = client.get("/api/gifts/duplicate-groups")
+
+    assert response.status_code == 200
+    pairs = response.json()["pairs"]
+    assert len(pairs) == 1
+    assert {pairs[0]["left"]["canonical_name"], pairs[0]["right"]["canonical_name"]} == {"abcdefg", "abcdefgX"}
+    assert pairs[0]["similarity"] == 0.9091

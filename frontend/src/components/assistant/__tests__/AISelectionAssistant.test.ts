@@ -17,10 +17,11 @@ describe("AISelectionAssistant", () => {
     vi.clearAllMocks();
     api.createAssistantThread.mockResolvedValue({ id: "thread-1", messages: [], suggestionRuns: [] });
     api.uploadAssistantAttachment.mockResolvedValue({ id: "pic.jpg", name: "pic.jpg", mimeType: "image/jpeg", url: "/uploads/pic.jpg" });
+    api.reviewSuggestionRun.mockImplementation((_id: string, appliedFields: string[], ignoredFields: string[]) => Promise.resolve({ appliedFields, ignoredFields }));
     api.sendAssistantMessage.mockResolvedValue({
       userMessage: { id: "u1", role: "user", content: "识别图片", attachments: [] },
       assistantMessage: { id: "a1", role: "assistant", content: "已生成建议", attachments: [] },
-      suggestionRun: { id: "r1", patches: [{ path: "shortDescription", label: "简短说明", value: "一份礼物", confidence: .9, status: "pending" }], appliedFields: [], ignoredFields: [] },
+      suggestionRun: { id: "r1", patches: [{ path: "shortDescription", label: "简短说明", value: "一份礼物", confidence: .9, sourceRefs: ["商品详情页"], status: "pending" }], appliedFields: [], ignoredFields: [] },
     });
   });
 
@@ -39,6 +40,18 @@ describe("AISelectionAssistant", () => {
       attachments: [expect.objectContaining({ name: "pic.jpg" })],
     }));
     expect(wrapper.text()).toContain("简短说明");
+    expect(wrapper.text()).toContain("来源：商品详情页");
     expect(wrapper.text()).toContain("DeepSeek V4 Flash");
+    expect(wrapper.find("[data-ai-apply-all]").exists()).toBe(true);
+    await wrapper.get("[data-ai-apply-all]").trigger("click");
+    await flushPromises();
+    expect(wrapper.emitted("apply-field")?.[0]?.[0]).toEqual(expect.objectContaining({ path: "shortDescription" }));
+    expect(wrapper.find("[data-ai-undo]").exists()).toBe(true);
+    await wrapper.get("[data-ai-undo]").trigger("click");
+    await flushPromises();
+    expect(wrapper.emitted("undo-field")?.[0]).toEqual(["shortDescription"]);
+    await wrapper.get("[data-ai-clear-run]").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).not.toContain("简短说明");
   });
 });

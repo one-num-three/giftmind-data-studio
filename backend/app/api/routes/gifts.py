@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import SessionContext, get_db_session, require_session
 from backend.app.schemas.gift import GiftBulkStatusUpdate, GiftCreate, GiftPurgeConfirmation, GiftRead
-from backend.app.services.duplicates import find_duplicates
+from backend.app.services.duplicates import find_duplicates, scan_duplicate_pairs
 from backend.app.services.gifts import (
     DuplicateGiftError,
     GiftNotFoundError,
@@ -88,6 +88,12 @@ async def create_typed_gift(payload: GiftCreate, session: DatabaseSession, _auth
         return await create_gift(session, payload)
     except DuplicateGiftError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail={"matches": [match.__dict__ for match in exc.matches]}) from exc
+
+
+@router.get("/gifts/duplicate-groups")
+async def duplicate_groups(session: DatabaseSession, _auth: ProtectedSession) -> dict[str, object]:
+    pairs = await scan_duplicate_pairs(session)
+    return {"pairs": pairs, "count": len(pairs)}
 
 
 @router.get("/gifts/{gift_id}", response_model=GiftRead)

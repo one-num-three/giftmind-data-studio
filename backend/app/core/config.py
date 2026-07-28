@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     app_base_path: str = "/"
     schema_version: int = 1
     deepseek_api_key: str | None = None
+    vision_api_key: str | None = None
+    vision_base_url: str | None = None
+    vision_model: str | None = None
 
     @field_validator("app_secret", "team_passcode")
     @classmethod

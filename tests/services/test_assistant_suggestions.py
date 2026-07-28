@@ -88,7 +88,7 @@ def test_patch_normalizer_uses_per_field_confidence_and_omits_empty_values():
 
 
 @pytest.mark.asyncio
-async def test_deepseek_v4_flash_receives_image_content(monkeypatch):
+async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content(monkeypatch):
     captured = {}
 
     class Response:
@@ -115,13 +115,52 @@ async def test_deepseek_v4_flash_receives_image_content(monkeypatch):
         gift_type_code="product",
         current_values={},
         history=[],
-        source_refs=[{"label": "用户上传图片", "status": "ok"}],
-        image_attachments=[{"mimeType": "image/png", "data": "data:image/png;base64,AAAA"}],
+        source_refs=[{"label": "图片：gift.png", "status": "ok", "text": "OCR：黄铜书签，售价 69 元\n图片描述：礼盒装书签"}],
         api_key="sk-test",
     )
 
     assert captured["model"] == "deepseek-v4-flash"
     latest = captured["messages"][-1]["content"]
-    assert isinstance(latest, list)
-    assert any(part.get("type") == "image_url" for part in latest)
+    assert isinstance(latest, str)
+    assert "黄铜书签" in latest
+    assert "image_url" not in latest
     assert result["source"] == "deepseek"
+
+
+@pytest.mark.asyncio
+async def test_assistant_proactively_asks_for_the_most_useful_missing_information():
+    result = await generate_assistant_result(
+        content="这是一个陶艺体验",
+        gift_type_code="activity",
+        current_values={
+            "canonicalName": "双人陶艺体验",
+            "priceMin": None,
+            "priceMax": None,
+            "recipientTypes": [],
+            "occasions": [],
+            "activityDetails": {"durationMinutesMin": None, "participantsMin": None, "bookingRequired": False},
+        },
+        history=[],
+        source_refs=[{"label": "用户描述", "status": "ok"}],
+        api_key=None,
+    )
+
+    assert 1 <= len(result["questions"]) <= 3
+    assert any("价格" in question for question in result["questions"])
+    assert "还需要确认" in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_fallback_preserves_a_written_price_range():
+    result = await generate_assistant_result(
+        content="黄铜书签，预算 50 到 100 元",
+        gift_type_code="product",
+        current_values={},
+        history=[],
+        source_refs=[{"label": "用户描述", "status": "ok"}],
+        api_key=None,
+    )
+
+    values = {patch["path"]: patch["value"] for patch in result["patches"]}
+    assert values["priceMin"] == 50
+    assert values["priceMax"] == 100

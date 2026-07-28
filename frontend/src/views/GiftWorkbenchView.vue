@@ -2,15 +2,16 @@
   <section class="workbench" aria-labelledby="workbench-title">
     <div class="workbench__heading"><div><p>单条礼物录入</p><h1 id="workbench-title">{{ giftId ? '编辑礼物' : '新建礼物' }}</h1></div><span v-if="store.saving">保存中…</span></div>
     <section v-if="restoredDraft" class="restore" aria-live="polite"><strong>发现未完成的本地草稿</strong><span>它只保存在此浏览器，尚未提交。</span><div><button data-action="restore-draft" type="button" @click="restore">恢复草稿</button><button type="button" @click="discardDraft">丢弃</button></div></section>
+    <section v-if="batchNotice" class="feedback" aria-live="polite"><strong>批量链接建议已载入</strong><span>{{ batchNotice }}</span></section>
     <div class="workbench__grid">
       <WorkbenchProgress class="workbench__progress" :sections="sections" current="Basic" />
       <form class="workbench__form" @input="store.markDirty" @submit.prevent="saveAndContinue">
         <section v-if="saveErrors.length" data-save-errors class="feedback feedback--error" role="alert"><strong>请先修正以下问题：</strong><ul><li v-for="error in saveErrors" :key="error">{{ error }}</li></ul></section>
         <section v-if="duplicateMatches.length" data-duplicate-feedback class="feedback" aria-live="polite"><strong>重复记录提示</strong><ul><li v-for="match in duplicateMatches" :key="`${match.canonical_name}-${match.similarity}`">{{ match.exact ? '完全重复' : '相近记录' }}：{{ match.canonical_name }}（相似度 {{ Math.round(match.similarity * 100) }}%）</li></ul></section>
-        <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" @suggestion="applyAISuggestion" />
+        <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" :highlighted-fields="highlightedFields" @suggestion="applyAISuggestion" />
         <GiftTypeSelector :model-value="draft.giftTypeCode" :locked="editingExisting" @select="selectType" />
-        <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" />
-        <ActivityFieldsSection v-else v-model="draft.activityDetails" />
+        <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" :highlighted-fields="highlightedFields" />
+        <ActivityFieldsSection v-else v-model="draft.activityDetails" :highlighted-fields="highlightedFields" />
         <OfferEditor v-model="draft" /><BundleEditor v-model="draft" :exclude-gift-id="giftId" />
         <ImageManager ref="imageManager" :gift-id="store.giftId ?? undefined" />
         <div class="actions"><button type="button" @click="saveDraft">保存草稿</button><button type="submit">保存并继续</button><button data-action="save-next" type="button" @click="saveAndCreateNext">保存并新建下一条</button></div>
@@ -18,7 +19,7 @@
       <QualityPanel class="workbench__quality" :draft="draft" />
     </div>
     <section v-if="pendingType" class="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div><h2 id="confirm-title">切换礼物类型？</h2><p>{{ discardMessage }}</p><div><button type="button" @click="pendingType = null">保留当前类型</button><button data-action="confirm-type-switch" type="button" @click="confirmType">确认切换</button></div></div></section>
-    <AISelectionAssistant :key="store.draftId" ref="assistant" :draft-id="store.draftId" :gift-id="store.giftId" :gift-type-code="draft.giftTypeCode" :current-values="draft" @apply-field="applyAssistantPatch" />
+    <AISelectionAssistant :key="store.draftId" ref="assistant" :draft-id="store.draftId" :gift-id="store.giftId" :gift-type-code="draft.giftTypeCode" :current-values="draft" :apply-field-handler="applyAssistantPatch" :undo-field-handler="undoAssistantPatch" />
   </section>
 </template>
 
@@ -26,11 +27,12 @@
 import { computed, onMounted, ref, toRef } from "vue";
 
 import { ApiError } from "../api/client";
-import type { FieldPatch } from "../api/assistant";
+import type { BatchLinkItem, FieldPatch } from "../api/assistant";
 import { findGiftDuplicates } from "../api/gifts";
 import type { DuplicateMatch, GiftTypeCode } from "../api/gifts";
 import type { GiftAISuggestion } from "../api/tools";
 import { useDraft } from "../composables/useDraft";
+import { useAISuggestionPatch } from "../composables/useAISuggestionPatch";
 import { useUnsavedChanges } from "../composables/useUnsavedChanges";
 import { createActivityDraft, createActivityDetails, createProductDetails, useWorkbenchStore, validateGiftDraft } from "../stores/workbench";
 import ActivityFieldsSection from "../components/gifts/ActivityFieldsSection.vue";
@@ -50,17 +52,43 @@ const draft = computed({ get: () => store.draft, set: (value) => store.replaceDr
 const draftGiftId = computed(() => props.giftId ?? store.giftId);
 const draftEnabled = computed(() => !store.saving);
 const editingExisting = computed(() => Boolean(props.giftId || store.giftId));
-const { restoredDraft, restoreDraft, discardDraft, clearDraft } = useDraft(draftGiftId, draft, draftEnabled);
+const { restoredDraft, restoreDraft, discardDraft, clearDraft } = useDraft(draftGiftId, draft, draftEnabled, toRef(store, "draftId"));
 const pendingType = ref<GiftTypeCode | null>(null);
 const imageManager = ref<{ uploadPending: (giftId: string) => Promise<void>; clearPending: () => void } | null>(null);
 const assistant = ref<{ bindGift: (giftId: string) => Promise<void> } | null>(null);
 const saveErrors = ref<string[]>([]);
 const duplicateMatches = ref<DuplicateMatch[]>([]);
+const batchNotice = ref("");
 const sections = ["Basic", "Type Confirmation", "Matching", "Type-Specific Details", "Concrete Channels", "Content & Quality"];
 const discardMessage = computed(() => draft.value.giftTypeCode === "product" ? "商品专属信息不会用于活动记录。确认后将清除商品专属字段。" : "活动专属信息不会用于商品记录。确认后将清除活动专属字段。");
+const patchState = useAISuggestionPatch(draft, { applyType: applyAssistantType });
+const highlightedFields = computed(() => [...patchState.highlightedFields.value]);
 
 useUnsavedChanges(toRef(store, "dirty"));
-onMounted(async () => { if (props.giftId) await store.load(props.giftId); else if (store.giftId) store.startNew(); });
+onMounted(async () => {
+  if (props.giftId) {
+    await store.load(props.giftId);
+    return;
+  }
+  const rawBatch = sessionStorage.getItem("giftmind.batchDraft");
+  if (rawBatch) {
+    sessionStorage.removeItem("giftmind.batchDraft");
+    try {
+      const item = JSON.parse(rawBatch) as BatchLinkItem & { giftTypeCode?: GiftTypeCode };
+      store.startNew();
+      if (item.giftTypeCode === "activity") applyType("activity");
+      patchState.applyMany(item.patches ?? []);
+      if (item.url && !draft.value.channels.includes(item.url)) draft.value.channels.push(item.url);
+      duplicateMatches.value = item.duplicates as DuplicateMatch[];
+      batchNotice.value = `${item.suggestedName || "该链接"}已有 ${item.patches?.length ?? 0} 条建议，请逐项审核后保存。`;
+      store.markDirty();
+      return;
+    } catch {
+      batchNotice.value = "批量建议格式无效，请返回数据工具重新解析。";
+    }
+  }
+  if (store.giftId) store.startNew();
+});
 
 function hasPopulatedTypeSpecificValue(): boolean {
   const current = draft.value.giftTypeCode === "product" ? draft.value.productDetails : draft.value.activityDetails;
@@ -119,21 +147,22 @@ function applyAISuggestion(suggestion: GiftAISuggestion) {
   }
 }
 function applyAssistantPatch(patch: FieldPatch) {
-  if (patch.path === "giftTypeCode") {
-    const type = patch.value as GiftTypeCode;
-    if (!editingExisting.value && ["product", "activity"].includes(type)) selectType(type);
-    return;
-  }
-  const parts = patch.path.split(".");
-  const root = draft.value as unknown as Record<string, unknown>;
-  const target = parts.length === 1 ? root : root[parts[0]] as Record<string, unknown> | undefined;
-  if (!target) return;
-  target[parts.at(-1)!] = Array.isArray(patch.value) ? [...patch.value] : patch.value;
-  store.markDirty();
+  const applied = patchState.apply(patch);
+  if (applied) store.markDirty();
+  return applied;
+}
+function undoAssistantPatch(path: string) { const undone = patchState.undo(path); if (undone) store.markDirty(); return undone; }
+function applyAssistantType(type: GiftTypeCode): boolean {
+  if (editingExisting.value) return false;
+  if (type === draft.value.giftTypeCode) return true;
+  if (hasPopulatedTypeSpecificValue()) { pendingType.value = type; return false; }
+  applyType(type);
+  return true;
 }
 function applyType(type: GiftTypeCode) {
   const common = commonDraftValues();
   store.replaceDraft(type === "product" ? { ...common, giftTypeCode: "product", productDetails: createProductDetails() } : { ...common, giftTypeCode: "activity", activityDetails: createActivityDraft().activityDetails });
+  return true;
 }
 function confirmType() { if (pendingType.value) applyType(pendingType.value); pendingType.value = null; }
 function restore() { restoreDraft(); store.markDirty(); }

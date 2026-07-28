@@ -161,7 +161,9 @@ def test_review_state_and_gift_binding_are_persisted(tmp_path):
 
 def test_image_attachment_is_uploaded_and_sent_with_the_message(tmp_path, monkeypatch):
     generated = AsyncMock(return_value={"content": "已识别图片。", "patches": [], "confidence": 0.8, "source": "deepseek"})
+    understood = AsyncMock(return_value=[{"label": "图片：gift.png", "status": "ok", "text": "OCR 文字：黄铜书签"}])
     monkeypatch.setattr(assistant_route, "generate_assistant_result", generated)
+    monkeypatch.setattr(assistant_route, "understand_images", understood)
     with create_assistant_client(tmp_path) as client:
         login(client)
         thread = client.post("/api/ai/threads", json={"draftId": "55555555-5555-4555-8555-555555555555"}).json()
@@ -178,7 +180,9 @@ def test_image_attachment_is_uploaded_and_sent_with_the_message(tmp_path, monkey
 
     assert response.status_code == 201
     assert response.json()["userMessage"]["attachments"][0]["name"] == "gift.png"
-    assert generated.await_args.kwargs["image_attachments"][0]["data"].startswith("data:image/png;base64,")
+    assert any(ref["label"] == "图片：gift.png" for ref in generated.await_args.kwargs["source_refs"])
+    assert "image_attachments" not in generated.await_args.kwargs
+    assert understood.await_count == 1
 
 
 def test_assistant_rejects_unsupported_or_oversized_images(tmp_path):
@@ -196,3 +200,39 @@ def test_assistant_rejects_unsupported_or_oversized_images(tmp_path):
 
     assert unsupported.status_code == 415
     assert oversized.status_code == 413
+
+
+def test_batch_links_return_reviewable_suggestions_and_duplicate_warnings(tmp_path, monkeypatch):
+    extracted = AsyncMock(side_effect=[
+        {"url": "https://example.com/a", "label": "黄铜书签", "status": "ok", "title": "黄铜书签", "description": "可刻字", "text": "69 元", "structuredData": [], "priceHints": ["69"]},
+        {"url": "https://example.com/b", "label": "陶艺体验", "status": "ok", "title": "陶艺体验", "description": "双人活动", "text": "199 元", "structuredData": [], "priceHints": ["199"]},
+    ])
+    monkeypatch.setattr(assistant_route, "extract_public_page", extracted)
+    with create_assistant_client(tmp_path) as client:
+        login(client)
+        client.post("/api/gifts", json=product_payload("黄铜书签"))
+        response = client.post(
+            "/api/ai/batch-links",
+            json={"urls": ["https://example.com/a", "https://example.com/b"], "giftTypeCode": "product"},
+        )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+    assert len(items) == 2
+    assert items[0]["suggestedName"] == "黄铜书签"
+    assert items[0]["duplicates"][0]["exact"] is True
+    assert items[1]["suggestedName"] == "陶艺体验"
+    assert all(item["patches"] for item in items)
+
+
+def test_batch_links_are_limited_and_require_public_http_urls(tmp_path):
+    with create_assistant_client(tmp_path) as client:
+        login(client)
+        too_many = client.post(
+            "/api/ai/batch-links",
+            json={"urls": [f"https://example.com/{index}" for index in range(21)]},
+        )
+        invalid = client.post("/api/ai/batch-links", json={"urls": ["file:///tmp/gift"]})
+
+    assert too_many.status_code == 422
+    assert invalid.status_code == 422

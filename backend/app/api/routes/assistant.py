@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 from pathlib import Path
 from typing import Annotated
@@ -19,6 +18,8 @@ from backend.app.models.assistant import AIMessage, AISuggestionRun, AIThread
 from backend.app.models.gift import Gift
 from backend.app.schemas.common import APIModel
 from backend.app.services.assistant_suggestions import generate_assistant_result
+from backend.app.services.duplicates import find_duplicates
+from backend.app.services.image_understanding import understand_images
 from backend.app.services.source_extraction import extract_public_page, extract_urls
 
 
@@ -46,6 +47,11 @@ class ReviewInput(APIModel):
 
 class BindInput(APIModel):
     gift_id: UUID
+
+
+class BatchLinksInput(APIModel):
+    urls: Annotated[list[str], Field(min_length=1, max_length=20)]
+    gift_type_code: str = "product"
 
 
 def _message_dict(message: AIMessage) -> dict[str, object]:
@@ -141,6 +147,53 @@ async def create_or_restore_thread(
     return await _thread_dict(session, thread)
 
 
+@router.post("/batch-links")
+async def analyze_batch_links(
+    payload: BatchLinksInput,
+    request: Request,
+    session: DatabaseSession,
+    _auth: ProtectedSession,
+) -> dict[str, object]:
+    normalized_urls: list[str] = []
+    for candidate in payload.urls:
+        url = candidate.strip()
+        if extract_urls(url) != [url]:
+            raise HTTPException(status_code=422, detail=f"不是有效的公开 HTTP/HTTPS 链接：{candidate}")
+        if url not in normalized_urls:
+            normalized_urls.append(url)
+    gift_type_code = payload.gift_type_code if payload.gift_type_code in {"product", "activity"} else "product"
+    items: list[dict[str, object]] = []
+    async with httpx.AsyncClient() as client:
+        for url in normalized_urls:
+            source = await extract_public_page(url, client)
+            result = await generate_assistant_result(
+                content=url,
+                gift_type_code=gift_type_code,
+                current_values={},
+                history=[],
+                source_refs=[source],
+                api_key=request.app.state.settings.deepseek_api_key,
+            )
+            name_patch = next(
+                (patch for patch in result["patches"] if patch.get("path") == "canonicalName"),
+                None,
+            )
+            suggested_name = str(name_patch.get("value") if name_patch else source.get("title") or source.get("label") or "").strip()
+            duplicates = await find_duplicates(session, suggested_name, []) if suggested_name else []
+            items.append(
+                {
+                    "url": url,
+                    "status": source.get("status", "error"),
+                    "suggestedName": suggested_name,
+                    "patches": result["patches"],
+                    "questions": result.get("questions", []),
+                    "sourceRef": source,
+                    "duplicates": [match.__dict__ for match in duplicates],
+                }
+            )
+    return {"items": items, "count": len(items)}
+
+
 @router.get("/threads/{thread_id}")
 async def read_thread(
     thread_id: UUID,
@@ -191,7 +244,7 @@ async def send_message(
     content = payload.content.strip()
     if not content and not payload.attachments:
         raise HTTPException(status_code=422, detail="请输入文字或添加图片")
-    image_attachments: list[dict[str, str]] = []
+    image_inputs: list[dict[str, object]] = []
     safe_attachments: list[dict[str, str]] = []
     expected_prefix = f"/uploads/assistant/{thread.id}/"
     for attachment in payload.attachments:
@@ -203,10 +256,9 @@ async def send_message(
         local_path = request.app.state.settings.upload_dir / "assistant" / thread.id / filename
         if not local_path.is_file():
             raise HTTPException(status_code=422, detail="图片附件不存在")
-        encoded = base64.b64encode(local_path.read_bytes()).decode("ascii")
         safe = {"id": filename, "name": Path(str(attachment.get("name") or filename)).name, "mimeType": mime_type, "url": url}
         safe_attachments.append(safe)
-        image_attachments.append({"mimeType": mime_type, "data": f"data:{mime_type};base64,{encoded}"})
+        image_inputs.append({"name": safe["name"], "mimeType": mime_type, "path": local_path})
     user_message = AIMessage(
         thread_id=thread.id,
         role="user",
@@ -222,8 +274,12 @@ async def send_message(
         async with httpx.AsyncClient() as client:
             for url in urls:
                 source_refs.append(await extract_public_page(url, client))
+    if image_inputs:
+        source_refs.extend(await understand_images(image_inputs, request.app.state.settings))
     if not source_refs:
         source_refs = [{"label": "用户描述", "status": "ok"}]
+    elif content:
+        source_refs.append({"label": "用户描述", "status": "ok", "text": content[:8000]})
     user_message.source_refs_json = source_refs
 
     messages = (
@@ -240,7 +296,6 @@ async def send_message(
         current_values=payload.current_values,
         history=history,
         source_refs=source_refs,
-        image_attachments=image_attachments,
         api_key=request.app.state.settings.deepseek_api_key,
     )
     assistant_message = AIMessage(

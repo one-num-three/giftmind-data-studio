@@ -11,6 +11,7 @@ import httpx
 
 
 FIELD_DEFINITIONS: dict[str, tuple[str, str]] = {
+    "canonicalName": ("标准名称", "text"),
     "giftTypeCode": ("礼物类型", "type"),
     "shortDescription": ("简短说明", "text"),
     "priceMin": ("最低价格", "number"),
@@ -133,16 +134,39 @@ def suggestion_to_patches(
     return patches
 
 
-def _fallback_raw(content: str, gift_type_code: str) -> dict[str, object]:
+def _fallback_raw(
+    content: str,
+    gift_type_code: str,
+    source_refs: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
     clean = re.sub(r"https?://\S+", "", content).strip()
-    price_match = re.search(r"(?:¥|￥|约|价格|价)?\s*(\d+(?:\.\d{1,2})?)\s*元", content)
-    price = float(price_match.group(1)) if price_match else None
+    first_source = next((item for item in source_refs or [] if item.get("status") == "ok"), {})
+    source_title = str(first_source.get("title") or first_source.get("label") or "").strip()
+    source_description = str(first_source.get("description") or first_source.get("text") or "").strip()
+    display_name = clean[:80] or source_title[:80]
+    number_pattern = r"\d+(?:\.\d{1,2})?"
+    price_range = re.search(
+        rf"(?:¥|￥|约|预算|价格|价)?\s*({number_pattern})\s*(?:到|至|[-~～])\s*({number_pattern})\s*元",
+        content,
+    )
+    price_match = re.search(rf"(?:¥|￥|约|价格|价)?\s*({number_pattern})\s*元", content)
+    if price_range:
+        first_price, second_price = (float(price_range.group(1)), float(price_range.group(2)))
+        price_min, price_max = sorted((first_price, second_price))
+    else:
+        if price_match is None:
+            price_match = re.search(
+                rf"({number_pattern})",
+                " ".join(map(str, first_source.get("priceHints") or [])),
+            )
+        price_min = price_max = float(price_match.group(1)) if price_match else None
     raw: dict[str, object] = {
+        "canonicalName": display_name or None,
         "recommendedGiftTypeCode": gift_type_code,
-        "shortDescription": clean[:120] or "请结合来源补充礼物说明。",
-        "whyTemplate": f"可以把{clean[:40] or '这份礼物'}送给合适的对象，请人工确认具体匹配关系。",
-        "priceMin": price,
-        "priceMax": price,
+        "shortDescription": (source_description[:120] or clean[:120]) or "请结合来源补充礼物说明。",
+        "whyTemplate": f"可以把{display_name[:40] or '这份礼物'}送给合适的对象，请人工确认具体匹配关系。",
+        "priceMin": price_min,
+        "priceMax": price_max,
         "confidence": 0.42,
     }
     if gift_type_code == "product":
@@ -157,12 +181,43 @@ def _assistant_prompt(gift_type_code: str) -> str:
     return f"""You help a Chinese gift-data collection team. Return one JSON object only.
 The currently selected type is {gift_type_code}. Use supplied conversation, source extracts,
 and current form values. Never invent a merchant, exact URL, address, or unsupported fact.
-Return recommendedGiftTypeCode, shortDescription, priceMin, priceMax, isFree, whyTemplate,
-recipientTypes[], occasions[], interests[], tags[], confidence, fieldConfidence, plus
+Return canonicalName, recommendedGiftTypeCode, shortDescription, priceMin, priceMax, isFree, whyTemplate,
+recipientTypes[], occasions[], interests[], tags[], confidence, fieldConfidence,
+followUpQuestions[] with at most 3 concise questions for important facts that remain unknown, plus
 productDetails {{genericProductName, materials[], personalizationMethods[], shippingRequired}}
 or activityDetails {{activityCategory, serviceRegions[], durationMinutesMin,
 durationMinutesMax, participantsMin, participantsMax, bookingRequired,
 bookingLeadDaysMin, bookingLeadDaysMax}}. Use null or [] when unknown."""
+
+
+def _missing_information_questions(
+    current_values: Mapping[str, object],
+    gift_type_code: str,
+) -> list[str]:
+    candidates: list[str] = []
+    if not current_values.get("canonicalName"):
+        candidates.append("这份礼物的标准名称是什么？")
+    if current_values.get("priceMin") is None and current_values.get("priceMax") is None:
+        candidates.append("它通常的价格区间是多少？如果免费也请说明。")
+    if not current_values.get("recipientTypes"):
+        candidates.append("它最适合送给哪些对象？")
+    if not current_values.get("occasions"):
+        candidates.append("它最适合生日、纪念日、感谢还是其他场景？")
+    details = current_values.get(f"{gift_type_code}Details")
+    nested = details if isinstance(details, Mapping) else {}
+    if gift_type_code == "product":
+        if not nested.get("materials"):
+            candidates.append("商品的主要材质是什么？")
+        if nested.get("shippingRequired") is None:
+            candidates.append("这是数字商品，还是需要实体配送？")
+    else:
+        if nested.get("durationMinutesMin") is None:
+            candidates.append("活动大约持续多长时间？")
+        if nested.get("participantsMin") is None:
+            candidates.append("活动适合几个人参加？")
+        if not nested.get("serviceRegions"):
+            candidates.append("活动可在哪些城市或线上提供？")
+    return candidates[:3]
 
 
 def _parse_json_object(content: str) -> dict[str, object]:
@@ -187,9 +242,8 @@ async def generate_assistant_result(
     history: list[dict[str, str]],
     source_refs: list[dict[str, object]],
     api_key: str | None,
-    image_attachments: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
-    raw = _fallback_raw(content, gift_type_code)
+    raw = _fallback_raw(content, gift_type_code, source_refs)
     source = "rule"
     if api_key:
         context_sources = [
@@ -215,13 +269,6 @@ async def generate_assistant_result(
                     },
                     ensure_ascii=False,
                 )
-                latest_content: str | list[dict[str, object]] = latest_payload
-                if image_attachments:
-                    latest_content = [{"type": "text", "text": latest_payload}]
-                    latest_content.extend(
-                        {"type": "image_url", "image_url": {"url": image["data"]}}
-                        for image in image_attachments
-                    )
                 response = await client.post(
                     "https://api.deepseek.com/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -233,7 +280,7 @@ async def generate_assistant_result(
                             {"role": "system", "content": _assistant_prompt(gift_type_code)},
                             {
                                 "role": "user",
-                                "content": latest_content,
+                                "content": latest_payload,
                             },
                         ],
                     },
@@ -244,14 +291,27 @@ async def generate_assistant_result(
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             source = "rule"
     patches = suggestion_to_patches(raw, source_refs)
+    model_questions = raw.get("followUpQuestions")
+    questions = (
+        [str(question).strip() for question in model_questions if str(question).strip()][:3]
+        if isinstance(model_questions, list)
+        else []
+    )
+    for question in _missing_information_questions(current_values, gift_type_code):
+        if len(questions) >= 3:
+            break
+        if question not in questions:
+            questions.append(question)
     confidence = (
         round(sum(float(item["confidence"]) for item in patches) / len(patches), 2)
         if patches
         else 0.0
     )
+    question_text = "\n还需要确认：\n" + "\n".join(f"• {question}" for question in questions) if questions else ""
     return {
-        "content": f"已整理出 {len(patches)} 条字段建议。请逐项审核后再写入表单。",
+        "content": f"已整理出 {len(patches)} 条字段建议。请逐项审核后再写入表单。{question_text}",
         "patches": patches,
         "confidence": confidence,
         "source": source,
+        "questions": questions,
     }
