@@ -50,10 +50,15 @@ export function useDraft(giftId: Ref<string | null>, draft: Ref<GiftDraft>, enab
     if (!enabled.value) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
-      localStorage.setItem(key.value, JSON.stringify({ version: DRAFT_VERSION, draft: draft.value }));
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(key.value, JSON.stringify({ version: DRAFT_VERSION, draft: draft.value }));
+      }
     }, 500);
   }, { deep: true });
-  onBeforeUnmount(() => timer && clearTimeout(timer));
+  onBeforeUnmount(() => {
+    if (timer) clearTimeout(timer);
+    timer = undefined;
+  });
 
   return { restoredDraft, restoreDraft, discardDraft, clearDraft };
 }

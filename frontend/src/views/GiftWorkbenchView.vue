@@ -18,6 +18,7 @@
       <QualityPanel class="workbench__quality" :draft="draft" />
     </div>
     <section v-if="pendingType" class="confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title"><div><h2 id="confirm-title">切换礼物类型？</h2><p>{{ discardMessage }}</p><div><button type="button" @click="pendingType = null">保留当前类型</button><button data-action="confirm-type-switch" type="button" @click="confirmType">确认切换</button></div></div></section>
+    <AISelectionAssistant :key="store.draftId" ref="assistant" :draft-id="store.draftId" :gift-id="store.giftId" :gift-type-code="draft.giftTypeCode" :current-values="draft" @apply-field="applyAssistantPatch" />
   </section>
 </template>
 
@@ -25,6 +26,7 @@
 import { computed, onMounted, ref, toRef } from "vue";
 
 import { ApiError } from "../api/client";
+import type { FieldPatch } from "../api/assistant";
 import { findGiftDuplicates } from "../api/gifts";
 import type { DuplicateMatch, GiftTypeCode } from "../api/gifts";
 import type { GiftAISuggestion } from "../api/tools";
@@ -32,6 +34,7 @@ import { useDraft } from "../composables/useDraft";
 import { useUnsavedChanges } from "../composables/useUnsavedChanges";
 import { createActivityDraft, createActivityDetails, createProductDetails, useWorkbenchStore, validateGiftDraft } from "../stores/workbench";
 import ActivityFieldsSection from "../components/gifts/ActivityFieldsSection.vue";
+import AISelectionAssistant from "../components/assistant/AISelectionAssistant.vue";
 import BundleEditor from "../components/gifts/BundleEditor.vue";
 import ImageManager from "../components/gifts/ImageManager.vue";
 import CommonFieldsSection from "../components/gifts/CommonFieldsSection.vue";
@@ -50,13 +53,14 @@ const editingExisting = computed(() => Boolean(props.giftId || store.giftId));
 const { restoredDraft, restoreDraft, discardDraft, clearDraft } = useDraft(draftGiftId, draft, draftEnabled);
 const pendingType = ref<GiftTypeCode | null>(null);
 const imageManager = ref<{ uploadPending: (giftId: string) => Promise<void>; clearPending: () => void } | null>(null);
+const assistant = ref<{ bindGift: (giftId: string) => Promise<void> } | null>(null);
 const saveErrors = ref<string[]>([]);
 const duplicateMatches = ref<DuplicateMatch[]>([]);
 const sections = ["Basic", "Type Confirmation", "Matching", "Type-Specific Details", "Concrete Channels", "Content & Quality"];
 const discardMessage = computed(() => draft.value.giftTypeCode === "product" ? "商品专属信息不会用于活动记录。确认后将清除商品专属字段。" : "活动专属信息不会用于商品记录。确认后将清除活动专属字段。");
 
 useUnsavedChanges(toRef(store, "dirty"));
-onMounted(async () => { if (props.giftId) await store.load(props.giftId); else store.startNew(); });
+onMounted(async () => { if (props.giftId) await store.load(props.giftId); else if (store.giftId) store.startNew(); });
 
 function hasPopulatedTypeSpecificValue(): boolean {
   const current = draft.value.giftTypeCode === "product" ? draft.value.productDetails : draft.value.activityDetails;
@@ -114,6 +118,19 @@ function applyAISuggestion(suggestion: GiftAISuggestion) {
     draft.value.activityDetails = next;
   }
 }
+function applyAssistantPatch(patch: FieldPatch) {
+  if (patch.path === "giftTypeCode") {
+    const type = patch.value as GiftTypeCode;
+    if (!editingExisting.value && ["product", "activity"].includes(type)) selectType(type);
+    return;
+  }
+  const parts = patch.path.split(".");
+  const root = draft.value as unknown as Record<string, unknown>;
+  const target = parts.length === 1 ? root : root[parts[0]] as Record<string, unknown> | undefined;
+  if (!target) return;
+  target[parts.at(-1)!] = Array.isArray(patch.value) ? [...patch.value] : patch.value;
+  store.markDirty();
+}
 function applyType(type: GiftTypeCode) {
   const common = commonDraftValues();
   store.replaceDraft(type === "product" ? { ...common, giftTypeCode: "product", productDetails: createProductDetails() } : { ...common, giftTypeCode: "activity", activityDetails: createActivityDraft().activityDetails });
@@ -143,6 +160,7 @@ async function save(kind: "draft" | "continue" | "next") {
     const saved = await store.saveDraft();
     giftSaved = true;
     await imageManager.value?.uploadPending(saved.id);
+    await assistant.value?.bindGift(saved.id);
     if (kind === "next") {
       imageManager.value?.clearPending();
       store.startNew();
