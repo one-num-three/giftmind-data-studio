@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +16,13 @@ class Settings(BaseSettings):
     app_base_path: str = "/"
     schema_version: int = 1
     deepseek_api_key: str | None = None
+
+    @field_validator("app_secret", "team_passcode")
+    @classmethod
+    def require_nonblank_secret(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must not be blank")
+        return value
 
 
 @lru_cache

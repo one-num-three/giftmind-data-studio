@@ -35,6 +35,7 @@ def test_login_sets_strict_http_only_cookie_and_session_status(tmp_path):
     assert "giftmind_session=" in response.headers["set-cookie"]
     assert "HttpOnly" in response.headers["set-cookie"]
     assert "SameSite=strict" in response.headers["set-cookie"]
+    assert "Max-Age=604800" in response.headers["set-cookie"]
 
 
 def test_wrong_passcode_is_rejected(tmp_path):

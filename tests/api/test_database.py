@@ -9,8 +9,8 @@ from backend.app.core.database import create_engine
 def test_sqlite_engine_enables_required_pragmas(tmp_path):
     database_path = tmp_path / "giftmind.sqlite3"
     settings = Settings(
-        app_secret="",
-        team_passcode="",
+        app_secret="test-app-secret",
+        team_passcode="test-team-passcode",
         database_url=f"sqlite+aiosqlite:///{database_path.as_posix()}",
     )
 
