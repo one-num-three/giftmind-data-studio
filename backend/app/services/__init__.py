@@ -1,0 +1,1 @@
+"""GiftMind domain services."""
