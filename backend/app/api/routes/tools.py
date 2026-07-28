@@ -28,7 +28,7 @@ from backend.app.schemas.common import APIModel
 from backend.app.services.gifts import GiftNotFoundError, _read_gift, create_gift, get_gift
 from backend.app.schemas.gift import GiftCreate
 
-router = APIRouter(tags=["tools"])
+router = APIRouter(prefix="/api", tags=["tools"])
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 ProtectedSession = Annotated[SessionContext, Depends(require_session)]
 
