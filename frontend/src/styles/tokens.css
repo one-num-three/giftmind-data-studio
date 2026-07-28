@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light;
+  font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+
+  --color-canvas: #f6f1e7;
+  --color-surface: #fffdf8;
+  --color-surface-muted: #eee5d5;
+  --color-ink: #193a2c;
+  --color-ink-muted: #5f6d62;
+  --color-primary: #1f593f;
+  --color-primary-hover: #174530;
+  --color-accent: #b58b38;
+  --color-border: #d8cdb9;
+  --color-danger: #a6372d;
+  --shadow-raised: 0 12px 30px rgb(54 43 23 / 0.1);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --content-width: 1180px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--color-canvas);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+}

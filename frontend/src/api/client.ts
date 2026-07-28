@@ -1,0 +1,48 @@
+export interface ApiRequestOptions extends Omit<RequestInit, "body"> {
+  body?: unknown;
+}
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+let onUnauthorized: (() => void | Promise<void>) | undefined;
+
+export function setUnauthorizedHandler(handler: () => void | Promise<void>): void {
+  onUnauthorized = handler;
+}
+
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { body, headers, ...requestOptions } = options;
+  const response = await fetch(path, {
+    ...requestOptions,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      await onUnauthorized?.();
+    }
+
+    const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
+    const message = typeof payload?.detail === "string" ? payload.detail : "请求未能完成。";
+    throw new ApiError(message, response.status);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
