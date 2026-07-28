@@ -11,8 +11,9 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import type { GiftTypeCode } from "../api/gifts";
 import { createCustomField, deepSeekStatus, downloadBlob, listCustomFields, saveDeepSeekKey, suggestGift, uploadFile } from "../api/tools";
-const notice = ref(""); const fields = ref<Awaited<ReturnType<typeof listCustomFields>>>([]); const aiName = ref(""); const aiType = ref("product"); const aiResult = ref<unknown>(null); const deepSeekKey = ref(""); const keyStatus = ref("检查中…"); const field = reactive({ machineKey: "", displayName: "", valueType: "text" });
+const notice = ref(""); const fields = ref<Awaited<ReturnType<typeof listCustomFields>>>([]); const aiName = ref(""); const aiType = ref<GiftTypeCode>("product"); const aiResult = ref<unknown>(null); const deepSeekKey = ref(""); const keyStatus = ref("检查中…"); const field = reactive({ machineKey: "", displayName: "", valueType: "text" });
 async function loadFields() { fields.value = await listCustomFields(); }
 async function saveKey() { if (!deepSeekKey.value.trim()) return; const result = await saveDeepSeekKey(deepSeekKey.value.trim()); deepSeekKey.value = ""; keyStatus.value = `已配置 ${result.model}`; notice.value = "DeepSeek 密钥已写入服务器 .env。"; }
 async function runAI() { if (!aiName.value.trim()) return; aiResult.value = await suggestGift(aiName.value, aiType.value); }

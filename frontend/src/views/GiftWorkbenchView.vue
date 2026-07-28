@@ -7,7 +7,7 @@
       <form class="workbench__form" @input="store.markDirty" @submit.prevent="saveAndContinue">
         <section v-if="saveErrors.length" data-save-errors class="feedback feedback--error" role="alert"><strong>请先修正以下问题：</strong><ul><li v-for="error in saveErrors" :key="error">{{ error }}</li></ul></section>
         <section v-if="duplicateMatches.length" data-duplicate-feedback class="feedback" aria-live="polite"><strong>重复记录提示</strong><ul><li v-for="match in duplicateMatches" :key="`${match.canonical_name}-${match.similarity}`">{{ match.exact ? '完全重复' : '相近记录' }}：{{ match.canonical_name }}（相似度 {{ Math.round(match.similarity * 100) }}%）</li></ul></section>
-        <CommonFieldsSection v-model="draft" />
+        <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" @suggestion="applyAISuggestion" />
         <GiftTypeSelector :model-value="draft.giftTypeCode" :locked="editingExisting" @select="selectType" />
         <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" />
         <ActivityFieldsSection v-else v-model="draft.activityDetails" />
@@ -27,6 +27,7 @@ import { computed, onMounted, ref, toRef } from "vue";
 import { ApiError } from "../api/client";
 import { findGiftDuplicates } from "../api/gifts";
 import type { DuplicateMatch, GiftTypeCode } from "../api/gifts";
+import type { GiftAISuggestion } from "../api/tools";
 import { useDraft } from "../composables/useDraft";
 import { useUnsavedChanges } from "../composables/useUnsavedChanges";
 import { createActivityDraft, createActivityDetails, createProductDetails, useWorkbenchStore, validateGiftDraft } from "../stores/workbench";
@@ -74,6 +75,44 @@ function selectType(type: GiftTypeCode) {
   applyType(type);
 }
 function commonDraftValues() { const { giftTypeCode: _giftTypeCode, productDetails: _productDetails, activityDetails: _activityDetails, ...common } = draft.value; return common; }
+function applyAISuggestion(suggestion: GiftAISuggestion) {
+  if (draft.value.giftTypeCode === "product") {
+    const current = draft.value.productDetails;
+    const details = suggestion.productDetails;
+    const arrayFields = ["materials", "colors", "sizes", "personalizationMethods", "deviceOrPlatformCompatibility"] as const;
+    const next = { ...current };
+    for (const field of arrayFields) {
+      const values = details[field];
+      if (Array.isArray(values) && values.length) next[field] = [...new Set([...(current[field] ?? []), ...values])];
+    }
+    for (const [field, value] of Object.entries(details)) {
+      if (arrayFields.includes(field as typeof arrayFields[number]) || value === null || value === undefined) continue;
+      const currentValue = current[field as keyof typeof current];
+      if (currentValue === null || currentValue === undefined || currentValue === "" || (typeof currentValue === "boolean" && currentValue === false)) {
+        (next as Record<string, unknown>)[field] = value;
+      }
+    }
+    draft.value.productDetails = next;
+    if ((details.personalizationMethods?.length ?? 0) > 0) draft.value.isCustomizable = true;
+  } else {
+    const current = draft.value.activityDetails;
+    const details = suggestion.activityDetails;
+    const arrayFields = ["serviceRegions", "includedItems", "excludedItems"] as const;
+    const next = { ...current };
+    for (const field of arrayFields) {
+      const values = details[field];
+      if (Array.isArray(values) && values.length) next[field] = [...new Set([...(current[field] ?? []), ...values])];
+    }
+    for (const [field, value] of Object.entries(details)) {
+      if (arrayFields.includes(field as typeof arrayFields[number]) || value === null || value === undefined) continue;
+      const currentValue = current[field as keyof typeof current];
+      if (currentValue === null || currentValue === undefined || currentValue === "" || (typeof currentValue === "boolean" && currentValue === false)) {
+        (next as Record<string, unknown>)[field] = value;
+      }
+    }
+    draft.value.activityDetails = next;
+  }
+}
 function applyType(type: GiftTypeCode) {
   const common = commonDraftValues();
   store.replaceDraft(type === "product" ? { ...common, giftTypeCode: "product", productDetails: createProductDetails() } : { ...common, giftTypeCode: "activity", activityDetails: createActivityDraft().activityDetails });

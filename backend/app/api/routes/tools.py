@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Annotated
@@ -48,6 +49,7 @@ class CustomFieldInput(APIModel):
 class AIInput(APIModel):
     canonical_name: Annotated[str, Field(min_length=1, max_length=256)]
     gift_type_code: str = "product"
+    current_values: dict[str, object] = Field(default_factory=dict)
 
 
 class DeepSeekKeyInput(APIModel):
@@ -56,6 +58,7 @@ class DeepSeekKeyInput(APIModel):
 
 @router.get("/settings/deepseek")
 async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
+    get_settings.cache_clear()
     settings = get_settings()
     return {"configured": bool(settings.deepseek_api_key), "model": "deepseek-chat"}
 
@@ -118,20 +121,173 @@ async def get_custom_values(gift_id: UUID, session: DatabaseSession, _auth: Prot
 
 @router.post("/ai/suggest")
 async def suggest_with_ai(payload: AIInput, session: DatabaseSession, _auth: ProtectedSession) -> dict:
+    del session
+    get_settings.cache_clear()
     settings = get_settings()
     key = settings.deepseek_api_key
-    suggestion = {"subcategoryCode": "other", "tags": [], "shortDescription": f"与{payload.canonical_name}相关的礼物或体验。", "confidence": 0.35, "source": "rule"}
+    selected_type = payload.gift_type_code if payload.gift_type_code in {"product", "activity"} else "product"
+    suggestion = _fallback_suggestion(payload.canonical_name, selected_type)
     if key:
-        prompt = "Return JSON only with keys subcategoryCode,tags,shortDescription. Classify this gift name for a Chinese gift database."
+        prompt = _suggestion_prompt(selected_type)
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": "deepseek-chat", "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": f"类型：{payload.gift_type_code}\n名称：{payload.canonical_name}"}]})
+                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": "deepseek-chat", "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
-                suggestion = {**suggestion, **json.loads(content), "confidence": 0.8, "source": "deepseek"}
-        except (httpx.HTTPError, KeyError, ValueError, json.JSONDecodeError):
+                suggestion = _normalize_ai_suggestion(_parse_json_object(content), suggestion, selected_type)
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             pass
     return suggestion
+
+
+def _fallback_suggestion(canonical_name: str, selected_type: str) -> dict[str, object]:
+    return {
+        "recommendedGiftTypeCode": selected_type,
+        "typeReason": "按当前选择的礼物类型生成建议，请人工确认。",
+        "subcategoryCode": "other",
+        "shortDescription": f"与{canonical_name}相关的礼物或体验。",
+        "whyTemplate": f"可以考虑把{canonical_name}送给合适的对象，具体适配关系和价格请人工确认。",
+        "priceMin": None,
+        "priceMax": None,
+        "isFree": False,
+        "recipientTypes": [],
+        "relationshipStages": [],
+        "ageRanges": [],
+        "traits": [],
+        "interests": [],
+        "occasions": [],
+        "desiredFeelings": [],
+        "memoryHooks": [],
+        "tags": [],
+        "customTags": [],
+        "bestScenarios": None,
+        "unsuitableScenarios": None,
+        "purchaseOrBookingTip": None,
+        "ritualTip": None,
+        "pairingIdeas": None,
+        "confidence": 0.35,
+        "source": "rule",
+        "productDetails": {},
+        "activityDetails": {},
+    }
+
+
+def _suggestion_prompt(selected_type: str) -> str:
+    type_specific = (
+        "productDetails: { productForm, genericProductName, materials[], colors[], sizes[], personalizationMethods[], shippingRequired, digitalDeliveryMethod, isConsumable, shelfLifeDays, storageRequirements, warrantyExpectation }"
+        if selected_type == "product"
+        else "activityDetails: { activityMode, activityCategory, serviceRegions[], durationMinutesMin, durationMinutesMax, participantsMin, participantsMax, pricingUnit, bookingRequired, validityDays, includedItems[], excludedItems[], ageRestrictions, indoorOutdoor, weatherDependency, cancellationExpectation, refundExpectation }"
+    )
+    return f"""You are a careful assistant helping students build a Chinese gift database. Return one valid JSON object only, without Markdown fences or extra commentary. The selected type is {selected_type}; do not invent a merchant, URL, exact address, or unverifiable factual claim. Price is an estimated CNY range and may be null when uncertain. Use short Chinese values and only suggest facts that can reasonably be inferred from the name. Fill every applicable field, and use null or [] when unknown.
+
+Return these keys: recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), and {type_specific}."""
+
+
+def _parse_json_object(content: str) -> dict[str, object]:
+    text = content.strip()
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    if fenced:
+        text = fenced.group(1).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("DeepSeek did not return a JSON object")
+    parsed = json.loads(text[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("DeepSeek returned a non-object JSON value")
+    return parsed
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()][:20]
+
+
+def _nullable_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _number(value: object) -> int | float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0:
+        return None
+    return int(number) if number.is_integer() else round(number, 2)
+
+
+def _normalize_product_details(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, object] = {}
+    for key in ("productForm", "genericProductName", "variantNotes", "packageDimensions", "sizeClass", "storageRequirements", "personalizationRequirements", "digitalDeliveryMethod", "shippingNotes", "returnRiskNotes", "warrantyExpectation"):
+        if key in value:
+            result[key] = value[key] if key == "productForm" else _nullable_text(value[key])
+    for key in ("materials", "colors", "sizes", "personalizationMethods", "deviceOrPlatformCompatibility"):
+        if key in value:
+            result[key] = _string_list(value[key])
+    for key in ("weightGrams", "shelfLifeDays"):
+        if key in value:
+            result[key] = _number(value[key])
+    for key in ("isBulky", "isFragile", "isConsumable", "shippingRequired"):
+        if key in value and isinstance(value[key], bool):
+            result[key] = value[key]
+    return result
+
+
+def _normalize_activity_details(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, object] = {}
+    for key in ("activityMode", "activityCategory", "pricingUnit", "scheduleType", "equipmentRequirements", "ageRestrictions", "heightRestrictions", "healthRestrictions", "accessibilityNotes", "weatherDependency", "indoorOutdoor", "cancellationExpectation", "rescheduleExpectation", "refundExpectation"):
+        if key in value:
+            result[key] = value[key] if key == "activityMode" else _nullable_text(value[key])
+    for key in ("serviceRegions", "includedItems", "excludedItems"):
+        if key in value:
+            result[key] = _string_list(value[key])
+    for key in ("durationMinutesMin", "durationMinutesMax", "participantsMin", "participantsMax", "bookingLeadDaysMin", "bookingLeadDaysMax", "validityDays"):
+        if key in value:
+            result[key] = _number(value[key])
+    if "bookingRequired" in value and isinstance(value["bookingRequired"], bool):
+        result["bookingRequired"] = value["bookingRequired"]
+    return result
+
+
+def _normalize_ai_suggestion(raw: dict[str, object], fallback: dict[str, object], selected_type: str) -> dict[str, object]:
+    result = dict(fallback)
+    for key in ("typeReason", "subcategoryCode", "shortDescription", "whyTemplate", "bestScenarios", "unsuitableScenarios", "purchaseOrBookingTip", "ritualTip", "pairingIdeas"):
+        if key in raw:
+            result[key] = _nullable_text(raw[key]) or result[key]
+    recommended_type = raw.get("recommendedGiftTypeCode")
+    if recommended_type in {"product", "activity"}:
+        result["recommendedGiftTypeCode"] = recommended_type
+    for key in ("recipientTypes", "relationshipStages", "ageRanges", "traits", "interests", "occasions", "desiredFeelings", "memoryHooks", "tags", "customTags"):
+        if key in raw:
+            result[key] = _string_list(raw[key])
+    for key in ("priceMin", "priceMax"):
+        if key in raw:
+            result[key] = _number(raw[key])
+    if isinstance(raw.get("isFree"), bool):
+        result["isFree"] = raw["isFree"]
+    if result["isFree"]:
+        result["priceMin"] = None
+        result["priceMax"] = None
+    elif result["priceMin"] is not None and result["priceMax"] is not None and result["priceMin"] > result["priceMax"]:
+        result["priceMin"], result["priceMax"] = result["priceMax"], result["priceMin"]
+    confidence = _number(raw.get("confidence"))
+    if confidence is not None:
+        result["confidence"] = min(1, confidence)
+    result["productDetails"] = _normalize_product_details(raw.get("productDetails"))
+    result["activityDetails"] = _normalize_activity_details(raw.get("activityDetails"))
+    result["source"] = "deepseek"
+    return result
 
 
 @router.post("/gifts/{gift_id}/images", status_code=201)
