@@ -285,7 +285,7 @@ Expected: all commands PASS.
 
 Create a new gift, expand the assistant, send a text/link message, apply a high-confidence field, verify form highlight, edit the field manually, verify highlight clears, save the gift, and verify the thread remains bound and reloadable.
 
-- [ ] **Step 4: Commit and push**
+- [x] **Step 4: Commit and push**
 
 ```bash
 git add backend frontend tests docs
