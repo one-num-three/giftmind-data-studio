@@ -6,14 +6,22 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, inspect, select
+from sqlalchemy import create_engine, event, inspect, select
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
 
 from backend.app.models.base import Base, CURRENT_SCHEMA_VERSION
 from backend.app.models.custom_fields import CustomFieldDefinition, GiftCustomFieldValue
-from backend.app.models.gift import ActivityDetail, Gift, ProductDetail
+from backend.app.models.gift import (
+    ActivityDetail,
+    ActivityOffer,
+    Gift,
+    GiftBundleComponent,
+    ProductDetail,
+    ProductOffer,
+)
 from backend.app.models.taxonomy import GiftTypeDefinition
 
 
@@ -128,3 +136,109 @@ def test_initial_migration_creates_versioned_contract_and_seed_types(tmp_path):
         assert seeded_codes == ["activity", "product"]
     finally:
         engine.dispose()
+
+
+@pytest.fixture
+def migrated_engine(tmp_path):
+    """Return a clean Alembic-upgraded SQLite engine with FK enforcement enabled."""
+    database_path = tmp_path / "migrated.sqlite3"
+    repository_root = Path(__file__).parents[2]
+    config = Config(str(repository_root / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+    command.upgrade(config, "head")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(dbapi_connection, _connection_record):
+        dbapi_connection.execute("PRAGMA foreign_keys=ON")
+
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
+def test_migration_allows_only_product_and_activity_to_be_active(migrated_engine):
+    """Catches a future top-level type becoming active before its formal migration."""
+    with Session(migrated_engine) as session:
+        session.add(
+            GiftTypeDefinition(code="future", name="未来类型", status="draft", contract_version=2)
+        )
+        session.commit()
+
+        session.add(
+            GiftTypeDefinition(code="future_active", name="未来激活类型", status="active", contract_version=2)
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        future_type = session.get(GiftTypeDefinition, "future")
+        future_type.status = "active"
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_migration_rejects_gift_for_inactive_type_definition(migrated_engine):
+    """Catches gifts that reference a defined but not yet active future type."""
+    with Session(migrated_engine) as session:
+        session.add(
+            GiftTypeDefinition(code="future", name="未来类型", status="draft", contract_version=2)
+        )
+        session.commit()
+        session.add(Gift(canonical_name="未来礼物", gift_type_code="future"))
+
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+
+def test_migration_rejects_wrong_type_details_offers_and_mixed_details(migrated_engine):
+    """Catches product/activity detail or offer rows attached to the wrong gift type."""
+    with Session(migrated_engine) as session:
+        product = Gift(canonical_name="迁移商品", gift_type_code="product")
+        activity = Gift(canonical_name="迁移活动", gift_type_code="activity")
+        session.add_all([product, activity])
+        session.commit()
+
+        session.add(ActivityDetail(gift_id=product.id, activity_mode="offline"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+
+        session.rollback()
+        session.add(
+            Gift(
+                canonical_name="迁移无效价格", gift_type_code="product",
+                price_min=Decimal("20.00"), price_max=Decimal("10.00"),
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add(
+            GiftBundleComponent(bundle_gift_id=product.id, component_gift_id="missing-gift")
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add(ProductDetail(gift_id=activity.id, product_form="physical"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add(ProductOffer(gift_id=activity.id, merchant="错误渠道"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add(ActivityOffer(gift_id=product.id, provider_name="错误活动渠道"))
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+        session.add(ProductDetail(gift_id=product.id, product_form="physical"))
+        session.commit()
+        session.add(ActivityDetail(gift_id=product.id, activity_mode="offline"))
+        with pytest.raises(IntegrityError):
+            session.commit()
