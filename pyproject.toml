@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "giftmind-data-studio"
+version = "0.1.0"
+description = "GiftMind data collection and maintenance studio"
+requires-python = ">=3.13"
+dependencies = [
+    "aiosqlite>=0.20",
+    "fastapi>=0.115",
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0",
+    "uvicorn>=0.32",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.28",
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
