@@ -273,7 +273,7 @@ def _suggestion_prompt(selected_type: str) -> str:
         if selected_type == "product"
         else "activityDetails: { activityMode, activityCategory, serviceRegions[], durationMinutesMin, durationMinutesMax, participantsMin, participantsMax, pricingUnit, bookingRequired, validityDays, includedItems[], excludedItems[], ageRestrictions, indoorOutdoor, weatherDependency, cancellationExpectation, refundExpectation }"
     )
-    return f"""You are a careful assistant helping students build a Chinese gift database. Return one valid JSON object only, without Markdown fences or extra commentary. The selected type is {selected_type}; do not invent a merchant, URL, exact address, or unverifiable factual claim. Price is an estimated CNY range and may be null when uncertain. Use short Chinese values and only suggest facts that can reasonably be inferred from the name. Fill every applicable field, and use null or [] when unknown.
+    return f"""You are a careful assistant helping students build a Chinese gift database. Return one valid JSON object only, without Markdown fences or extra commentary. The selected type is {selected_type}; do not invent a merchant, URL, exact address, or unverifiable factual claim. Price is an estimated CNY range and may be null when uncertain. Use short Chinese values and only suggest facts that can reasonably be inferred from the name. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '; cover the gift's features, likely recipient, suitable occasion, and emotional or practical value without repeating yourself. Never use placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}. Fill every applicable field, and use null or [] when unknown.
 
 Return these keys: recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), and {type_specific}."""
 
@@ -303,8 +303,19 @@ def _nullable_text(value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    text = re.sub(r"\{(?:recipient|receiver|relationship|gift_recipient)\}", "对方", text, flags=re.IGNORECASE)
+    text = re.sub(r"\{(?:recipient|receiver|relationship|gift_recipient)\}", "收礼人", text, flags=re.IGNORECASE)
+    text = re.sub(r"\{occasion\}", "节日、聚餐或朋友聚会", text, flags=re.IGNORECASE)
     return text or None
+
+
+def _format_reason_points(text: str) -> str:
+    lines = [line.strip() for line in re.split(r"\r?\n+", text) if line.strip()]
+    if len(lines) == 1:
+        lines = [part.strip() for part in re.split(r"(?<=[。！？；])\s*", lines[0]) if part.strip()]
+    lines = [re.sub(r"^(?:[-*•]\s*|\d+[.)、]\s*)", "", line) for line in lines[:6]]
+    if 4 <= len(lines) <= 6:
+        return "\n".join(f"- {line}" for line in lines)
+    return text
 
 
 def _number(value: object) -> int | float | None:
@@ -360,7 +371,10 @@ def _normalize_ai_suggestion(raw: dict[str, object], fallback: dict[str, object]
     result = dict(fallback)
     for key in ("typeReason", "subcategoryCode", "shortDescription", "whyTemplate", "bestScenarios", "unsuitableScenarios", "purchaseOrBookingTip", "ritualTip", "pairingIdeas"):
         if key in raw:
-            result[key] = _nullable_text(raw[key]) or result[key]
+            value = _nullable_text(raw[key])
+            if key == "whyTemplate" and value:
+                value = _format_reason_points(value)
+            result[key] = value or result[key]
     recommended_type = raw.get("recommendedGiftTypeCode")
     if recommended_type in {"product", "activity"}:
         result["recommendedGiftTypeCode"] = recommended_type

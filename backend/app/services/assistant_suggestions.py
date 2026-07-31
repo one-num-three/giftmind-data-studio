@@ -393,7 +393,7 @@ def _assistant_prompt(gift_type_code: str) -> str:
         "pricingUnit, bookingRequired, bookingLeadDaysMin, bookingLeadDaysMax, "
         "validityDays, includedItems[], excludedItems[], indoorOutdoor }"
     )
-    return f"""You help a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The selected type is {gift_type_code}. Analyze the latest message, conversation, source extracts, and current form values. Use natural Simplified Chinese. shortDescription should be a useful 25-60 character summary. whyTemplate should be a complete, specific 50-100 character Chinese paragraph that connects the gift's concrete features, the recipient's likely preferences, a suitable occasion, and the emotional or practical value of giving it. Never output template placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}; use natural words such as 收礼人 or 朋友聚会 instead. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
+    return f"""You help a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The selected type is {gift_type_code}. Analyze the latest message, conversation, source extracts, and current form values. Use natural Simplified Chinese. shortDescription should be a useful 25-60 character summary. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '. Cover different angles such as the gift's concrete features, the recipient's likely preferences, a suitable occasion, the emotional or practical value, and a useful usage or pairing suggestion; do not repeat the same reason. Each point should be a complete, specific sentence of about 15-40 Chinese characters. Never output template placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}; use natural words such as 收礼人 or 朋友聚会 instead. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
 
 Return: canonicalName, recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), followUpQuestions[] with at most 3 important missing facts, and {type_specific}."""
 
@@ -472,11 +472,11 @@ def _merge_model_with_fallback(
                     nested[nested_key] = deepcopy(nested_value)
             merged[key] = nested
         elif _has_substantive_value(value):
-            merged[key] = _clean_suggestion_text(value) if key in _TEXT_SUGGESTION_FIELDS else deepcopy(value)
+            merged[key] = _clean_suggestion_text(value, format_reasons=key == "whyTemplate") if key in _TEXT_SUGGESTION_FIELDS else deepcopy(value)
     return merged
 
 
-def _clean_suggestion_text(value: object) -> object:
+def _clean_suggestion_text(value: object, *, format_reasons: bool = False) -> object:
     if not isinstance(value, str):
         return value
 
@@ -484,7 +484,18 @@ def _clean_suggestion_text(value: object) -> object:
         name = match.group(1).lower()
         return _TEMPLATE_PLACEHOLDER_VALUES.get(name, "对方")
 
-    return re.sub(r"\{([a-zA-Z][a-zA-Z0-9_]*)\}", replace_placeholder, value).strip()
+    cleaned = re.sub(r"\{([a-zA-Z][a-zA-Z0-9_]*)\}", replace_placeholder, value).strip()
+    return _format_reason_points(cleaned) if format_reasons else cleaned
+
+
+def _format_reason_points(text: str) -> str:
+    lines = [line.strip() for line in re.split(r"\r?\n+", text) if line.strip()]
+    if len(lines) == 1:
+        lines = [part.strip() for part in re.split(r"(?<=[。！？；])\s*", lines[0]) if part.strip()]
+    lines = [re.sub(r"^(?:[-*•]\s*|\d+[.)、]\s*)", "", line) for line in lines[:6]]
+    if 4 <= len(lines) <= 6:
+        return "\n".join(f"- {line}" for line in lines)
+    return text
 
 
 async def generate_assistant_result(

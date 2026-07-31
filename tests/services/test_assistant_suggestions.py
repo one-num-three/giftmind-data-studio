@@ -115,7 +115,7 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
             return None
 
         def json(self):
-            return {"choices": [{"message": {"content": '{"shortDescription":"图中礼物","whyTemplate":"因为{recipient}喜欢云南风味或火锅，野生菌底料带来地道山珍体验，适合在{occasion}时共享。"}'}}]}
+            return {"choices": [{"message": {"content": '{"shortDescription":"图中礼物","whyTemplate":"因为{recipient}喜欢云南风味或火锅。野生菌底料能带来地道山珍体验。适合在{occasion}时共享。一起烹饪还能增加互动和仪式感。"}'}}]}
 
     class Client:
         async def __aenter__(self):
@@ -149,6 +149,9 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
     why_patch = next(item for item in result["patches"] if item["path"] == "whyTemplate")
     assert "{" not in why_patch["value"]
     assert "收礼人" in why_patch["value"]
+    reason_lines = why_patch["value"].splitlines()
+    assert len(reason_lines) == 4
+    assert all(line.startswith("- ") for line in reason_lines)
 
 
 @pytest.mark.asyncio
