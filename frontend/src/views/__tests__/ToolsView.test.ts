@@ -14,12 +14,16 @@ describe("tools view DeepSeek settings", () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.resolve([]);
       if (path === "/api/settings/deepseek") return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
+      if (path === "/api/status") return Promise.resolve({ backend: { status: "ok", schemaVersion: 1 }, deepseek: { configured: false, model: "deepseek-v4-flash" }, taobao: { enabled: true, browserAvailable: true, sessionActive: false, stateSaved: false } });
       return Promise.resolve({});
     });
 
     const wrapper = mount(ToolsView);
     await flushPromises();
 
+    expect(wrapper.text()).toContain("服务器当前状态");
+    expect(wrapper.text()).toContain("后端接口");
+    expect(wrapper.text()).toContain("在线");
     expect(wrapper.text()).toContain("淘宝登录（可选）");
     expect(wrapper.text()).toContain("登录状态只保存在服务器");
     expect(wrapper.find("[data-taobao-start]").exists()).toBe(true);
@@ -30,6 +34,7 @@ describe("tools view DeepSeek settings", () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.resolve([]);
       if (path === "/api/settings/deepseek") return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
+      if (path === "/api/status") return Promise.resolve({ backend: { status: "ok", schemaVersion: 1 }, deepseek: { configured: false, model: "deepseek-v4-flash" }, taobao: { enabled: true, browserAvailable: true, sessionActive: false, stateSaved: false } });
       return Promise.resolve({ configured: true, model: "deepseek-v4-flash" });
     });
 
@@ -55,6 +60,7 @@ describe("tools view DeepSeek settings", () => {
   it("still checks the key status when the custom-field list is unavailable", async () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.reject(new Error("field service unavailable"));
+      if (path === "/api/status") return Promise.resolve({ backend: { status: "ok", schemaVersion: 1 }, deepseek: { configured: false, model: "deepseek-v4-flash" }, taobao: { enabled: true, browserAvailable: true, sessionActive: false, stateSaved: false } });
       return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
     });
 
@@ -68,12 +74,14 @@ describe("tools view DeepSeek settings", () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.resolve([]);
       if (path === "/api/settings/deepseek") return Promise.resolve({ configured: true, model: "deepseek-v4-flash" });
+      if (path === "/api/status") return Promise.resolve({ backend: { status: "ok", schemaVersion: 1 }, deepseek: { configured: true, model: "deepseek-v4-flash" }, taobao: { enabled: true, browserAvailable: true, sessionActive: false, stateSaved: true } });
       if (path === "/api/ai/batch-links") return Promise.resolve({
         items: [{
           url: "https://example.com/gift",
           suggestedName: "黄铜书签",
           status: "ok",
-          patches: [{ path: "canonicalName", label: "标准名称", value: "黄铜书签", confidence: .9, status: "pending" }],
+          patches: [{ path: "canonicalName", label: "标准名称", value: "黄铜书签", confidence: .9, reason: "页面标题直接识别", status: "pending" }],
+          sourceRef: { label: "商品详情页", status: "ok", title: "黄铜书签", description: "南京主题金属书签", text: "售价 69 元 黄铜书签", priceHints: ["69"] },
           duplicates: [{ canonical_name: "黄铜书签", exact: true, similarity: 1 }],
         }],
       });
@@ -90,6 +98,9 @@ describe("tools view DeepSeek settings", () => {
       body: { urls: ["https://example.com/gift"], giftTypeCode: "product" },
     });
     expect(wrapper.text()).toContain("发现完全重复");
+    expect(wrapper.text()).toContain("解析内容");
+    expect(wrapper.text()).toContain("售价 69 元");
+    expect(wrapper.text()).toContain("AI 建议字段");
     await wrapper.get("[data-review-batch-item]").trigger("click");
     expect(sessionStorage.getItem("giftmind.batchDraft")).toContain("黄铜书签");
     expect(push).toHaveBeenCalledWith({ name: "gift-create" });

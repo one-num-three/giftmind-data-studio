@@ -3,6 +3,11 @@ import type { ActivityDetailsInput, GiftTypeCode, ProductDetailsInput } from "./
 
 export interface CustomField { id: string; machineKey: string; displayName: string; description?: string; valueType: string; state: string; }
 export interface TaobaoLoginSession { sessionId: string; ready: boolean; url: string; cookieCount: number; stateSaved: boolean; }
+export interface ServerStatus {
+  backend: { status: string; schemaVersion: number };
+  deepseek: { configured: boolean; model: string };
+  taobao: { enabled: boolean; browserAvailable: boolean; sessionActive: boolean; stateSaved: boolean };
+}
 export interface GiftAISuggestion {
   recommendedGiftTypeCode: GiftTypeCode;
   typeReason: string;
@@ -36,6 +41,7 @@ export async function listCustomFields(): Promise<CustomField[]> { return apiReq
 export async function createCustomField(payload: { machineKey: string; displayName: string; description?: string; valueType: string; cardinality: string }): Promise<CustomField> { return apiRequest<CustomField>("/api/custom-fields", { method: "POST", body: payload }); }
 export async function suggestGift(canonicalName: string, giftTypeCode: GiftTypeCode, currentValues: Record<string, unknown> = {}) { return apiRequest<GiftAISuggestion>("/api/ai/suggest", { method: "POST", body: { canonicalName, giftTypeCode, currentValues } }); }
 export async function deepSeekStatus() { return apiRequest<{ configured: boolean; model: string }>("/api/settings/deepseek"); }
+export async function getServerStatus() { return apiRequest<ServerStatus>("/api/status"); }
 export async function saveDeepSeekKey(apiKey: string) { return apiRequest<{ configured: boolean; model: string }>("/api/settings/deepseek", { method: "PUT", body: { apiKey } }); }
 export function startTaobaoLogin() { return apiRequest<TaobaoLoginSession>("/api/taobao/login", { method: "POST" }); }
 export function taobaoLoginStatus(sessionId: string) { return apiRequest<TaobaoLoginSession>(`/api/taobao/login/${sessionId}/status`); }

@@ -17,6 +17,7 @@ def create_assistant_client(tmp_path) -> TestClient:
         app_secret="test-app-secret",
         team_passcode="team-secret",
         database_url=f"sqlite+aiosqlite:///{(tmp_path / 'assistant-api.sqlite3').as_posix()}",
+        deepseek_api_key=None,
     )
 
     async def initialize() -> None:

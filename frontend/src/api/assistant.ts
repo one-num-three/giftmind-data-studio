@@ -19,6 +19,18 @@ export interface BatchLinkItem {
   patches: FieldPatch[];
   duplicates: Array<{ gift_id?: string; canonical_name: string; exact: boolean; similarity: number }>;
   questions?: string[];
+  sourceRef?: {
+    url?: string;
+    resolvedUrl?: string;
+    label?: string;
+    title?: string;
+    description?: string;
+    text?: string;
+    status?: string;
+    error?: string;
+    extractionMode?: string;
+    priceHints?: string[];
+  };
 }
 
 export function createAssistantThread(draftId: string, giftId?: string | null) {

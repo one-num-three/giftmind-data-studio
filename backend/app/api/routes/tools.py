@@ -74,6 +74,21 @@ async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
     return {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL}
 
 
+@router.get("/status")
+async def server_status(request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    get_settings.cache_clear()
+    settings = get_settings()
+    taobao = request.app.state.taobao_login.health()
+    return {
+        "backend": {"status": "ok", "schemaVersion": settings.schema_version},
+        "deepseek": {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL},
+        "taobao": {
+            "enabled": settings.playwright_enabled,
+            **taobao,
+        },
+    }
+
+
 @router.put("/settings/deepseek")
 async def save_deepseek_key(payload: DeepSeekKeyInput, request: Request, _auth: ProtectedSession) -> dict[str, object]:
     env_path = Path(".env")
