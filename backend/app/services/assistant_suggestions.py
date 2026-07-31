@@ -497,6 +497,7 @@ async def generate_assistant_result(
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={
                         "model": "deepseek-v4-flash",
+                        "thinking": {"type": "disabled"},
                         "temperature": 0.1,
                         "messages": [
                             {"role": "system", "content": _assistant_prompt(gift_type_code)},

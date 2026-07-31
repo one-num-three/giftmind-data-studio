@@ -111,6 +111,7 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
     assert payload["recipientTypes"] == ["朋友"]
     assert payload["productDetails"]["materials"] == ["金属"]
     assert captured_request["json"]["model"] == "deepseek-v4-flash"
+    assert captured_request["json"]["thinking"] == {"type": "disabled"}
     assert captured_request["client"]["timeout"] == tools_route.DEEPSEEK_TIMEOUT_SECONDS
 
 

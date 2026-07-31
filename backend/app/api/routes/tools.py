@@ -226,7 +226,7 @@ async def suggest_with_ai(payload: AIInput, session: DatabaseSession, _auth: Pro
         prompt = _suggestion_prompt(selected_type)
         try:
             async with httpx.AsyncClient(timeout=DEEPSEEK_TIMEOUT_SECONDS) as client:
-                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": DEEPSEEK_MODEL, "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
+                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"}, "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
                 suggestion = _normalize_ai_suggestion(_parse_json_object(content), suggestion, selected_type)

@@ -139,6 +139,7 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
     )
 
     assert captured["model"] == "deepseek-v4-flash"
+    assert captured["thinking"] == {"type": "disabled"}
     latest = captured["messages"][-1]["content"]
     assert isinstance(latest, str)
     assert "黄铜书签" in latest
