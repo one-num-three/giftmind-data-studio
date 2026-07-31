@@ -29,6 +29,12 @@ function createCommonDraft(): CommonGiftDraft {
   };
 }
 
+function numberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 export function createProductDetails(): ProductDetailsInput {
   return {
     productForm: "physical", genericProductName: null, materials: [], colors: [], sizes: [], specifications: null, variantNotes: null, weightGrams: null,
@@ -53,16 +59,30 @@ export function createActivityDraft(): ActivityGiftDraft { return { ...createCom
 
 export function toGiftPayload(draft: GiftDraft): GiftPayload {
   const { channels, giftTypeCode, productDetails, activityDetails, ...common } = draft;
+  const normalizedCommon = {
+    ...common,
+    priceMin: numberOrNull(common.priceMin),
+    priceMax: numberOrNull(common.priceMax),
+    leadDaysMin: numberOrNull(common.leadDaysMin),
+    leadDaysMax: numberOrNull(common.leadDaysMax),
+  };
   return giftTypeCode === "product"
-    ? { ...common, sourceUrls: channels.filter(Boolean), giftTypeCode, productDetails: productDetails! }
-    : { ...common, sourceUrls: channels.filter(Boolean), giftTypeCode, activityDetails: activityDetails! };
+    ? { ...normalizedCommon, sourceUrls: channels.filter(Boolean), giftTypeCode, productDetails: { ...productDetails!, weightGrams: numberOrNull(productDetails?.weightGrams), shelfLifeDays: numberOrNull(productDetails?.shelfLifeDays) } }
+    : { ...normalizedCommon, sourceUrls: channels.filter(Boolean), giftTypeCode, activityDetails: { ...activityDetails!, durationMinutesMin: numberOrNull(activityDetails?.durationMinutesMin), durationMinutesMax: numberOrNull(activityDetails?.durationMinutesMax), participantsMin: numberOrNull(activityDetails?.participantsMin), participantsMax: numberOrNull(activityDetails?.participantsMax), bookingLeadDaysMin: numberOrNull(activityDetails?.bookingLeadDaysMin), bookingLeadDaysMax: numberOrNull(activityDetails?.bookingLeadDaysMax), validityDays: numberOrNull(activityDetails?.validityDays) } };
 }
 
 export function fromGiftRead(gift: GiftRead): GiftDraft {
-  const { id: _id, schemaVersion: _schemaVersion, completenessScore: _completenessScore, giftTypeCode, productDetails, activityDetails, sourceUrls, ...common } = gift;
+  const { id: _id, schemaVersion: _schemaVersion, completenessScore: _completenessScore, createdAt: _createdAt, updatedAt: _updatedAt, deletedAt: _deletedAt, giftTypeCode, productDetails, activityDetails, sourceUrls, ...common } = gift;
+  const normalizedCommon = {
+    ...common,
+    priceMin: numberOrNull(common.priceMin),
+    priceMax: numberOrNull(common.priceMax),
+    leadDaysMin: numberOrNull(common.leadDaysMin),
+    leadDaysMax: numberOrNull(common.leadDaysMax),
+  };
   return giftTypeCode === "product"
-    ? { ...createCommonDraft(), ...common, channels: sourceUrls ?? [], giftTypeCode, productDetails: { ...createProductDetails(), ...productDetails } }
-    : { ...createCommonDraft(), ...common, channels: sourceUrls ?? [], giftTypeCode, activityDetails: { ...createActivityDetails(), ...activityDetails } };
+    ? { ...createCommonDraft(), ...normalizedCommon, channels: sourceUrls ?? [], giftTypeCode, productDetails: { ...createProductDetails(), ...productDetails, weightGrams: numberOrNull(productDetails?.weightGrams), shelfLifeDays: numberOrNull(productDetails?.shelfLifeDays) } }
+    : { ...createCommonDraft(), ...normalizedCommon, channels: sourceUrls ?? [], giftTypeCode, activityDetails: { ...createActivityDetails(), ...activityDetails, durationMinutesMin: numberOrNull(activityDetails?.durationMinutesMin), durationMinutesMax: numberOrNull(activityDetails?.durationMinutesMax), participantsMin: numberOrNull(activityDetails?.participantsMin), participantsMax: numberOrNull(activityDetails?.participantsMax), bookingLeadDaysMin: numberOrNull(activityDetails?.bookingLeadDaysMin), bookingLeadDaysMax: numberOrNull(activityDetails?.bookingLeadDaysMax), validityDays: numberOrNull(activityDetails?.validityDays) } };
 }
 
 function rangeErrors(minimum: number | null | undefined, maximum: number | null | undefined, label: string): string[] {

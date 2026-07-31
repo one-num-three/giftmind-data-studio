@@ -20,6 +20,20 @@ export function setUnauthorizedHandler(handler: () => void | Promise<void>): voi
   onUnauthorized = handler;
 }
 
+function formatApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (!Array.isArray(detail)) return null;
+  const messages = detail.map((item) => {
+    if (typeof item === "string") return item;
+    if (!item || typeof item !== "object") return "";
+    const entry = item as { msg?: unknown; loc?: unknown };
+    const message = typeof entry.msg === "string" ? entry.msg : "";
+    const location = Array.isArray(entry.loc) ? String(entry.loc.at(-1) ?? "") : "";
+    return message && location ? `${location}：${message}` : message;
+  }).filter(Boolean);
+  return messages.length ? messages.join("；") : null;
+}
+
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { body, headers, handleUnauthorized = true, ...requestOptions } = options;
   const response = await fetch(path, {
@@ -38,7 +52,7 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     }
 
     const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
-    const message = typeof payload?.detail === "string" ? payload.detail : "请求未能完成。";
+    const message = formatApiErrorDetail(payload?.detail) ?? "请求未能完成。";
     throw new ApiError(message, response.status, payload?.detail);
   }
 
