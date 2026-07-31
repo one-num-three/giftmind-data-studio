@@ -10,7 +10,7 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.api.deps import SessionContext, get_db_session, require_session
@@ -145,6 +145,36 @@ async def create_or_restore_thread(
     else:
         response.status_code = status.HTTP_200_OK
     return await _thread_dict(session, thread)
+
+
+async def _clear_thread_history(session: AsyncSession, thread: AIThread) -> tuple[int, int]:
+    runs = await session.execute(delete(AISuggestionRun).where(AISuggestionRun.thread_id == thread.id))
+    messages = await session.execute(delete(AIMessage).where(AIMessage.thread_id == thread.id))
+    await session.commit()
+    return runs.rowcount or 0, messages.rowcount or 0
+
+
+@router.post("/threads/{thread_id}/reset")
+async def reset_thread(
+    thread_id: UUID,
+    session: DatabaseSession,
+    _auth: ProtectedSession,
+) -> dict[str, object]:
+    """Start a blank conversation for this gift draft."""
+    thread = await _thread_or_404(session, thread_id)
+    await _clear_thread_history(session, thread)
+    return await _thread_dict(session, thread)
+
+
+@router.delete("/threads/{thread_id}/history")
+async def delete_thread_history(
+    thread_id: UUID,
+    session: DatabaseSession,
+    _auth: ProtectedSession,
+) -> dict[str, object]:
+    thread = await _thread_or_404(session, thread_id)
+    run_count, message_count = await _clear_thread_history(session, thread)
+    return {"deletedRuns": run_count, "deletedMessages": message_count}
 
 
 @router.post("/batch-links")
@@ -303,7 +333,9 @@ async def send_message(
             .order_by(AIMessage.created_at, AIMessage.id)
         )
     ).scalars().all()
-    history = [{"role": message.role, "content": message.content} for message in messages[-12:]]
+    # The latest user message is sent separately below; excluding it here avoids
+    # doubling the payload and keeps the model focused on the new material.
+    history = [{"role": message.role, "content": message.content} for message in messages[:-1][-12:]]
     result = await generate_assistant_result(
         content=content,
         gift_type_code=payload.gift_type_code if payload.gift_type_code in {"product", "activity"} else "product",

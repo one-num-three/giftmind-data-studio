@@ -68,7 +68,7 @@ async function runAI() {
   try {
     const result = await suggestGift(modelValue.value.canonicalName, props.giftTypeCode, modelValue.value as unknown as Record<string, unknown>);
     aiSuggestion.value = result; applyCommonSuggestion(result); emit("suggestion", result);
-    const typeNotice = result.recommendedGiftTypeCode !== props.giftTypeCode ? `模型建议类型为${result.recommendedGiftTypeCode === "activity" ? "活动" : "商品"}，当前未自动切换。` : "";
+    const typeNotice = result.recommendedGiftTypeCode !== props.giftTypeCode ? `模型建议类型为${result.recommendedGiftTypeCode === "activity" ? "活动" : "商品"}，请确认是否切换。` : "";
     aiNotice.value = `${result.source === "deepseek" ? "DeepSeek 完整建议已填入，请人工确认。" : "当前使用规则兜底建议，请人工确认。"}${typeNotice}`;
   } catch { aiNotice.value = "AI 暂时不可用，请继续手动选择。"; } finally { aiBusy.value = false; }
 }

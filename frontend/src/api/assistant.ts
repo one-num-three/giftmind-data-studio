@@ -37,6 +37,14 @@ export function createAssistantThread(draftId: string, giftId?: string | null) {
   return apiRequest<AssistantThread>("/api/ai/threads", { method: "POST", body: { draftId, giftId } });
 }
 
+export function resetAssistantThread(threadId: string) {
+  return apiRequest<AssistantThread>(`/api/ai/threads/${threadId}/reset`, { method: "POST" });
+}
+
+export function deleteAssistantHistory(threadId: string) {
+  return apiRequest<{ deletedRuns: number; deletedMessages: number }>(`/api/ai/threads/${threadId}/history`, { method: "DELETE" });
+}
+
 export function sendAssistantMessage(threadId: string, payload: { content: string; giftTypeCode: string; currentValues: unknown; attachments: AssistantAttachment[] }) {
   return apiRequest<AssistantTurn>(`/api/ai/threads/${threadId}/messages`, { method: "POST", body: payload });
 }

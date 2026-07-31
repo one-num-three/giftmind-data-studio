@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   createAssistantThread: vi.fn(),
+  resetAssistantThread: vi.fn(),
+  deleteAssistantHistory: vi.fn(),
   sendAssistantMessage: vi.fn(),
   uploadAssistantAttachment: vi.fn(),
   reviewSuggestionRun: vi.fn(),
@@ -16,6 +18,8 @@ describe("AISelectionAssistant", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.createAssistantThread.mockResolvedValue({ id: "thread-1", messages: [], suggestionRuns: [] });
+    api.resetAssistantThread.mockResolvedValue({ id: "thread-1", messages: [], suggestionRuns: [] });
+    api.deleteAssistantHistory.mockResolvedValue({ deletedRuns: 1, deletedMessages: 2 });
     api.uploadAssistantAttachment.mockResolvedValue({ id: "pic.jpg", name: "pic.jpg", mimeType: "image/jpeg", url: "/uploads/pic.jpg" });
     api.reviewSuggestionRun.mockImplementation((_id: string, appliedFields: string[], ignoredFields: string[]) => Promise.resolve({ appliedFields, ignoredFields }));
     api.sendAssistantMessage.mockResolvedValue({
@@ -53,5 +57,18 @@ describe("AISelectionAssistant", () => {
     await wrapper.get("[data-ai-clear-run]").trigger("click");
     await flushPromises();
     expect(wrapper.text()).not.toContain("简短说明");
+  });
+
+  it("starts a blank chat and can delete its history", async () => {
+    const wrapper = mount(AISelectionAssistant, { props: { draftId: "11111111-1111-4111-8111-111111111111", giftTypeCode: "product", currentValues: {} } });
+    await wrapper.get("[data-ai-toggle]").trigger("click");
+    await wrapper.get("[data-ai-new-chat]").trigger("click");
+    await flushPromises();
+    expect(api.resetAssistantThread).toHaveBeenCalledWith("thread-1");
+    expect(wrapper.text()).toContain("已新建空白聊天");
+    await wrapper.get("[data-ai-delete-history]").trigger("click");
+    await flushPromises();
+    expect(api.deleteAssistantHistory).toHaveBeenCalledWith("thread-1");
+    expect(wrapper.text()).toContain("聊天历史已全部删除");
   });
 });

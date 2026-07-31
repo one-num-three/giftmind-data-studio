@@ -181,7 +181,7 @@ def _fallback_raw(
     gift_type_code: str,
     source_refs: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    clean = re.sub(r"https?://\S+", "", content).strip()
+    clean = _clean_user_content(content)
     first_source = next((item for item in source_refs or [] if item.get("status") == "ok"), {})
     source_title = str(first_source.get("title") or first_source.get("label") or "").strip()
     source_description = str(first_source.get("description") or first_source.get("text") or "").strip()
@@ -272,6 +272,17 @@ def _guess_name(clean: str, source_title: str) -> str:
     return text[:80]
 
 
+def _clean_user_content(content: str) -> str:
+    """Keep the described gift and remove assistant instructions from fallback text."""
+    clean = re.sub(r"https?://\S+", "", content).strip()
+    clean = re.split(
+        r"(?:请(?:帮我|你)?(?:识别|分析|填写|补充|整理)|请完整填写|帮我(?:识别|分析|填写)|希望你)",
+        clean,
+        maxsplit=1,
+    )[0].strip(" ：:，,。；;\n")
+    return clean
+
+
 def _build_description(name: str, detail_text: str) -> str | None:
     if not detail_text:
         return name or None
@@ -296,7 +307,7 @@ def _infer_product_details(text: str) -> tuple[dict[str, object], list[str]]:
     if category:
         details["genericProductName"] = category
         inferred.append("productDetails.genericProductName")
-    materials = [name for name in ("黄铜", "金属", "木质", "陶瓷", "玻璃", "皮革", "棉麻", "纸张", "塑料") if name in text]
+    materials = [name for name in ("黄铜", "金属", "铁质", "磁铁", "木质", "陶瓷", "玻璃", "皮革", "棉麻", "纸张", "塑料") if name in text]
     if materials:
         details["materials"] = materials
         inferred.append("productDetails.materials")
@@ -319,7 +330,7 @@ def _evidence_for_product(text: str, details: Mapping[str, object]) -> dict[str,
 
 
 def _infer_matching_fields(text: str, name: str) -> dict[str, object]:
-    institution_match = re.search(r"([\u4e00-\u9fa5]{2,}(?:大学|学院|学校))", text)
+    institution_match = re.search(r"([\u4e00-\u9fa5]{2,}?(?:大学|学院|学校))", text)
     institution = institution_match.group(1) if institution_match else ""
     institution = re.sub(r"^(?:一个|一款|这个|这款)", "", institution)
     result: dict[str, object] = {"recipientTypes": [], "occasions": [], "interests": [], "tags": []}
@@ -344,45 +355,50 @@ def _fallback_questions(text: str, gift_type_code: str, price_min: float | None)
     questions: list[str] = []
     if price_min is None:
         questions.append("单件实际售价或常见价格区间是多少？")
-    if gift_type_code == "product" and not any(keyword in text for keyword in ("材质", "金属", "木质", "陶瓷", "玻璃", "皮革")):
+    if gift_type_code == "product" and not any(keyword in text for keyword in ("材质", "金属", "铁质", "磁铁", "木质", "陶瓷", "玻璃", "皮革")):
         questions.append("材质是什么？如果不确定，可以先留空。")
-    questions.append("最希望推荐给哪类人，或用于什么送礼场景？")
+    if not any(keyword in text for keyword in ("送给", "适合", "对象", "校友", "学生", "老师", "生日", "毕业", "纪念", "场景")):
+        questions.append("最希望推荐给哪类人，或用于什么送礼场景？")
     return questions[:3]
 
 
 def _assistant_prompt(gift_type_code: str) -> str:
-    return f"""You help a Chinese gift-data collection team. Return one JSON object only.
-The currently selected type is {gift_type_code}. Use supplied conversation, source extracts,
-and current form values. Never invent a merchant, exact URL, address, or unsupported fact.
-Do not copy a whole user message into canonicalName. Do not use filler such as “适合送给合适的对象”;
-if a field cannot be supported, return null or []. A whyTemplate must name a concrete recipient or
-occasion only when the source supports it, and should explain the practical or emotional reason in one
-natural Chinese sentence. Price must be null unless the source clearly contains a price.
-Return canonicalName, recommendedGiftTypeCode, shortDescription, priceMin, priceMax, isFree, whyTemplate,
-recipientTypes[], occasions[], interests[], tags[], confidence, fieldConfidence,
-fieldReasons {{fieldPath: concise reason}}, fieldEvidence {{fieldPath: short exact quote or observed fact}},
-followUpQuestions[] with at most 3 concise questions for important facts that remain unknown, plus
-productDetails {{genericProductName, materials[], colors[], sizes[], variantNotes, sizeClass,
-packageDimensions, personalizationMethods[], personalizationRequirements, shippingRequired, shippingNotes}}
-or activityDetails {{activityCategory, serviceRegions[], durationMinutesMin,
-durationMinutesMax, participantsMin, participantsMax, bookingRequired,
-bookingLeadDaysMin, bookingLeadDaysMax}}. Use null or [] when unknown."""
+    type_specific = (
+        "productDetails: { productForm, genericProductName, materials[], colors[], sizes[], "
+        "variantNotes, sizeClass, packageDimensions, personalizationMethods[], "
+        "personalizationRequirements, shippingRequired, shippingNotes }"
+        if gift_type_code == "product"
+        else
+        "activityDetails: { activityMode, activityCategory, serviceRegions[], "
+        "durationMinutesMin, durationMinutesMax, participantsMin, participantsMax, "
+        "pricingUnit, bookingRequired, bookingLeadDaysMin, bookingLeadDaysMax, "
+        "validityDays, includedItems[], excludedItems[], indoorOutdoor }"
+    )
+    return f"""You help a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The selected type is {gift_type_code}. Analyze the latest message, conversation, source extracts, and current form values. Use concise natural Simplified Chinese. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
+
+Return: canonicalName, recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), followUpQuestions[] with at most 3 important missing facts, and {type_specific}."""
 
 
 def _missing_information_questions(
     current_values: Mapping[str, object],
     gift_type_code: str,
+    suggested_values: Mapping[str, object] | None = None,
 ) -> list[str]:
+    suggested = suggested_values or {}
+
+    def present(key: str) -> bool:
+        return _has_substantive_value(current_values.get(key)) or _has_substantive_value(suggested.get(key))
+
     candidates: list[str] = []
-    if not current_values.get("canonicalName"):
+    if not present("canonicalName"):
         candidates.append("这份礼物的标准名称是什么？")
-    if current_values.get("priceMin") is None and current_values.get("priceMax") is None:
+    if not present("priceMin") and not present("priceMax"):
         candidates.append("它通常的价格区间是多少？如果免费也请说明。")
-    if not current_values.get("recipientTypes"):
+    if not present("recipientTypes"):
         candidates.append("它最适合送给哪些对象？")
-    if not current_values.get("occasions"):
+    if not present("occasions"):
         candidates.append("它最适合生日、纪念日、感谢还是其他场景？")
-    details = current_values.get(f"{gift_type_code}Details")
+    details = current_values.get(f"{gift_type_code}Details") or suggested.get(f"{gift_type_code}Details")
     nested = details if isinstance(details, Mapping) else {}
     if gift_type_code == "product":
         if not nested.get("materials"):
@@ -466,7 +482,7 @@ async def generate_assistant_result(
             for item in source_refs
         ]
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=45) as client:
                 latest_payload = json.dumps(
                     {
                         "conversation": history[-12:],
@@ -482,7 +498,6 @@ async def generate_assistant_result(
                     json={
                         "model": "deepseek-v4-flash",
                         "temperature": 0.1,
-                        "response_format": {"type": "json_object"},
                         "messages": [
                             {"role": "system", "content": _assistant_prompt(gift_type_code)},
                             {
@@ -505,7 +520,7 @@ async def generate_assistant_result(
         if isinstance(model_questions, list)
         else []
     )
-    for question in _missing_information_questions(current_values, gift_type_code):
+    for question in _missing_information_questions(current_values, gift_type_code, raw):
         if len(questions) >= 3:
             break
         if question not in questions:

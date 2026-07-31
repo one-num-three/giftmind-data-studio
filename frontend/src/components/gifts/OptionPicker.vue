@@ -1,14 +1,27 @@
 <template>
-  <fieldset :class="['picker', { 'picker--ai': aiHighlighted }]"><legend>{{ label }} <small>可多选</small></legend><div class="options"><button v-for="option in options" :key="option" type="button" :class="{ selected: selected.includes(option) }" @click="$emit('toggle', field, option)">{{ option }}</button></div><input v-bind="attrs" :placeholder="'补充其他' + label + '（可选）'" @change="addCustom" /></fieldset>
+  <fieldset :class="['picker', { 'picker--ai': aiHighlighted }]">
+    <legend>{{ label }} <small>可多选</small></legend>
+    <div class="options">
+      <button v-for="option in displayOptions" :key="option" type="button" :class="{ selected: selected.includes(option) }" @click="$emit('toggle', field, option)">{{ option }}</button>
+    </div>
+    <input v-bind="attrs" :placeholder="'补充其他' + label + '（可选）'" @change="addCustom" />
+  </fieldset>
 </template>
 
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
-import { useAttrs } from "vue";
+import { computed, useAttrs } from "vue";
+
 const attrs = useAttrs();
 const props = withDefaults(defineProps<{ label: string; field: string; options: string[]; selected: string[]; aiHighlighted?: boolean }>(), { aiHighlighted: false });
 const emit = defineEmits<{ toggle: [field: string, value: string] }>();
-function addCustom(event: Event) { const value = (event.target as HTMLInputElement).value.trim(); if (value) emit("toggle", props.field, value); (event.target as HTMLInputElement).value = ""; }
+const displayOptions = computed(() => [...props.options, ...props.selected.filter((value) => !props.options.includes(value))]);
+
+function addCustom(event: Event) {
+  const value = (event.target as HTMLInputElement).value.trim();
+  if (value) emit("toggle", props.field, value);
+  (event.target as HTMLInputElement).value = "";
+}
 </script>
 
 <style scoped>

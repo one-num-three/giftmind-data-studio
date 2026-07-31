@@ -109,6 +109,9 @@ function selectType(type: GiftTypeCode) {
 }
 function commonDraftValues() { const { giftTypeCode: _giftTypeCode, productDetails: _productDetails, activityDetails: _activityDetails, ...common } = draft.value; return common; }
 function applyAISuggestion(suggestion: GiftAISuggestion) {
+  if (!editingExisting.value && suggestion.recommendedGiftTypeCode !== draft.value.giftTypeCode && !hasPopulatedTypeSpecificValue()) {
+    applyType(suggestion.recommendedGiftTypeCode);
+  }
   if (draft.value.giftTypeCode === "product") {
     const current = draft.value.productDetails;
     const details = suggestion.productDetails;

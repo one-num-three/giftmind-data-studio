@@ -5,7 +5,11 @@
   <aside v-else class="ai-panel" aria-label="AI 选品助手">
     <header>
       <div><strong>AI 选品助手</strong><small>DeepSeek V4 Flash · 当前礼物独立会话</small></div>
-      <button data-ai-toggle type="button" aria-label="关闭助手" @click="open = false">×</button>
+      <div class="ai-header-actions">
+        <button data-ai-new-chat type="button" :disabled="historyBusy" @click="newChat">新建聊天</button>
+        <button data-ai-delete-history type="button" :disabled="historyBusy" @click="clearHistory">清空历史</button>
+        <button data-ai-toggle type="button" aria-label="关闭助手" @click="open = false">×</button>
+      </div>
     </header>
 
     <div class="ai-messages">
@@ -57,6 +61,7 @@
         <span v-for="file in pendingFiles" :key="file.name">{{ file.name }} <button type="button" @click="removeFile(file)">×</button></span>
       </div>
       <div v-if="error" class="ai-error" role="alert">{{ error }}</div>
+      <div v-if="notice" class="ai-notice" role="status">{{ notice }}</div>
       <textarea data-ai-message v-model="text" rows="3" placeholder="输入名称、链接或描述，也可以直接添加图片…" @keydown.ctrl.enter.prevent="send" />
       <div class="composer-actions">
         <label>
@@ -78,7 +83,9 @@ import { ref, watch } from "vue";
 import {
   bindAssistantThread,
   createAssistantThread,
+  deleteAssistantHistory,
   reviewSuggestionRun,
+  resetAssistantThread,
   sendAssistantMessage,
   uploadAssistantAttachment,
 } from "../../api/assistant";
@@ -97,7 +104,9 @@ const open = ref(false);
 const threadId = ref("");
 const text = ref("");
 const sending = ref(false);
+const historyBusy = ref(false);
 const error = ref("");
+const notice = ref("");
 const pendingFiles = ref<File[]>([]);
 const messages = ref<AssistantMessage[]>([]);
 const runs = ref<SuggestionRun[]>([]);
@@ -108,6 +117,7 @@ watch(() => props.draftId, () => {
   runs.value = [];
   pendingFiles.value = [];
   text.value = "";
+  notice.value = "";
 });
 
 async function ensureThread() {
@@ -122,7 +132,52 @@ async function ensureThread() {
 async function openAssistant() {
   open.value = true;
   error.value = "";
+  notice.value = "";
   try { await ensureThread(); } catch (cause) { error.value = cause instanceof Error ? cause.message : "助手加载失败"; }
+}
+
+function applyThreadState(thread: { id: string; messages: AssistantMessage[]; suggestionRuns: SuggestionRun[] }) {
+  threadId.value = thread.id;
+  messages.value = thread.messages;
+  runs.value = thread.suggestionRuns;
+}
+
+async function newChat() {
+  if (historyBusy.value) return;
+  historyBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const id = await ensureThread();
+    applyThreadState(await resetAssistantThread(id));
+    text.value = "";
+    pendingFiles.value = [];
+    notice.value = "已新建空白聊天，可以继续发送新的礼物资料。";
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "新建聊天失败";
+  } finally {
+    historyBusy.value = false;
+  }
+}
+
+async function clearHistory() {
+  if (historyBusy.value) return;
+  historyBusy.value = true;
+  error.value = "";
+  notice.value = "";
+  try {
+    const id = await ensureThread();
+    await deleteAssistantHistory(id);
+    messages.value = [];
+    runs.value = [];
+    text.value = "";
+    pendingFiles.value = [];
+    notice.value = "当前礼物的聊天历史已全部删除。";
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause.message : "清空历史失败";
+  } finally {
+    historyBusy.value = false;
+  }
 }
 
 function selectImages(event: Event) {
@@ -237,11 +292,12 @@ defineExpose({ bindGift });
 
 <style scoped>
 .ai-launcher { position: fixed; z-index: 20; right: 24px; bottom: 28px; display: grid; grid-template-columns: 34px auto; column-gap: 9px; align-items: center; padding: 11px 16px; border: 0; border-radius: 16px; color: white; background: var(--color-primary); box-shadow: 0 12px 34px rgb(21 58 43 / .28); text-align: left; }.ai-launcher span { grid-row: 1 / 3; display: grid; width: 34px; height: 34px; place-items: center; border-radius: 10px; color: var(--color-primary); background: #f5c85b; font-size: 1.2rem; }.ai-launcher strong { font-size: .9rem; }.ai-launcher small { opacity: .72; font-size: .68rem; }
-.ai-panel { position: fixed; z-index: 30; top: 84px; right: 18px; bottom: 18px; display: grid; width: min(390px, calc(100vw - 36px)); grid-template-rows: auto 1fr auto; overflow: hidden; border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-surface); box-shadow: 0 20px 60px rgb(20 45 34 / .25); }.ai-panel header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; color: white; background: var(--color-primary); }.ai-panel header div { display: grid; gap: 3px; }.ai-panel header small { opacity: .72; }.ai-panel header button { border: 0; color: white; background: transparent; font-size: 1.7rem; }
+.ai-panel { position: fixed; z-index: 30; top: 84px; right: 18px; bottom: 18px; display: grid; width: min(390px, calc(100vw - 36px)); grid-template-rows: auto 1fr auto; overflow: hidden; border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-surface); box-shadow: 0 20px 60px rgb(20 45 34 / .25); }.ai-panel header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 18px; color: white; background: var(--color-primary); }.ai-panel header > div:first-child { display: grid; gap: 3px; min-width: 0; }.ai-panel header small { opacity: .72; }.ai-header-actions { display: flex; align-items: center; gap: 4px; flex: none; }.ai-panel header button { border: 0; color: white; background: transparent; font-size: .72rem; font-weight: 700; }.ai-panel header button[aria-label="关闭助手"] { font-size: 1.7rem; line-height: 1; }.ai-panel header button:disabled { opacity: .55; }
 .ai-messages { overflow: auto; padding: 16px; background: #f7f5ed; }.ai-empty { padding: 20px 12px; text-align: center; color: var(--color-ink-muted); }.ai-empty span { display: block; color: #d9a829; font-size: 2rem; }.ai-empty strong { display: block; margin: 8px; color: var(--color-ink); }.ai-empty p { font-size: .84rem; line-height: 1.55; }.message { max-width: 86%; margin: 0 0 12px; padding: 10px 12px; border-radius: 14px; background: white; }.message--user { margin-left: auto; color: white; background: var(--color-primary); }.message p { margin: 0; white-space: pre-wrap; }.message-images { display: flex; gap: 6px; margin-top: 8px; }.message-images img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; }
 .message-sources { display: grid; gap: 3px; margin: 8px 0 0; padding-left: 18px; font-size: .72rem; }.message-sources a { color: inherit; overflow-wrap: anywhere; }
 .suggestions { display: grid; gap: 8px; margin: 10px 0 18px; }.suggestions__heading { display: grid; gap: 6px; }.suggestions__heading > div { display: flex; flex-wrap: wrap; gap: 4px; }.suggestions__heading button { padding: 3px 5px; border: 0; color: var(--color-primary); background: transparent; font-size: .75rem; font-weight: 700; }.patch { padding: 11px; border: 1px solid #e2dfd2; border-radius: 12px; background: white; }.patch--applied { border-color: #79a98e; background: #eef7f1; }.patch--ignored { opacity: .55; }.patch > div { display: flex; justify-content: space-between; gap: 8px; }.patch small { color: var(--color-ink-muted); }.patch p { margin: 7px 0; color: var(--color-ink); }.patch__source { display: block; margin-bottom: 8px; line-height: 1.4; }.patch__actions { justify-content: flex-end !important; }.patch__actions button { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: 7px; background: white; }
 .ai-panel footer { display: grid; gap: 9px; padding: 13px; border-top: 1px solid var(--color-border); background: white; }.ai-panel textarea { width: 100%; resize: none; border: 1px solid var(--color-border); border-radius: 12px; padding: 10px; font: inherit; }.composer-actions { display: flex; justify-content: space-between; gap: 8px; }.composer-actions label { display: inline-flex; align-items: center; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-primary); font-weight: 700; cursor: pointer; }.composer-actions input { position: absolute; width: 1px; height: 1px; opacity: 0; }.composer-actions > button { padding: 8px 12px; border: 0; border-radius: 9px; color: white; background: var(--color-primary); font-weight: 800; }.pending-images { display: flex; flex-wrap: wrap; gap: 6px; }.pending-images span { padding: 5px 8px; border-radius: 8px; background: #f2efe4; font-size: .75rem; }.pending-images button { border: 0; background: transparent; }.ai-error { color: #a62d28; font-size: .8rem; }.ai-panel footer > small { color: var(--color-ink-muted); }
+.ai-notice { padding: 7px 9px; border-radius: 8px; color: #216844; background: #e8f5eb; font-size: .78rem; }
 .suggestions__heading > div:first-child { display: flex; align-items: baseline; gap: 8px; }.suggestions__heading > div:first-child small { color: var(--color-ink-muted); font-size: .72rem; font-weight: 500; }.suggestions__notice { margin: 0; padding: 9px 11px; border-radius: 10px; color: #7b5b1a; background: #fff7df; font-size: .78rem; line-height: 1.45; }.patch { padding: 12px; }.patch__head { align-items: center; }.patch__head strong { color: var(--color-ink); }.confidence { flex: none; padding: 3px 7px; border-radius: 999px; font-size: .7rem; font-weight: 800; }.confidence--good { color: #216844; background: #e4f4e9; }.confidence--check { color: #7b5b1a; background: #fff2cc; }.confidence--low { color: #9a4038; background: #ffebe8; }.patch__value { margin: 8px 0 5px !important; font-size: .96rem; line-height: 1.55; }.patch__reason { margin: 0 0 8px !important; color: var(--color-ink-muted) !important; font-size: .78rem; line-height: 1.45; }.patch__evidence { display: grid; gap: 3px; margin: 8px 0; padding: 7px 9px; border-left: 2px solid #d5c08b; color: #806a32; background: #fffbef; font-size: .74rem; line-height: 1.4; }.patch__evidence small { color: #806a32; font-weight: 800; }.patch__evidence span { overflow-wrap: anywhere; }.patch__source { color: var(--color-ink-muted); font-size: .7rem; }
-@media (max-width: 600px) { .ai-panel { inset: auto 0 0; width: 100%; height: 82vh; border-radius: 20px 20px 0 0; }.ai-launcher { right: 14px; bottom: 16px; } }
+@media (max-width: 600px) { .ai-panel { inset: auto 0 0; width: 100%; height: 82vh; border-radius: 20px 20px 0 0; }.ai-panel header { padding: 13px 14px; }.ai-header-actions button:not([aria-label="关闭助手"]) { font-size: .65rem; }.ai-launcher { right: 14px; bottom: 16px; } }
 </style>
