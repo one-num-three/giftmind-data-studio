@@ -121,6 +121,44 @@ SINGLE_RECIPIENT_HINTS: tuple[tuple[str, int], ...] = (
     ("快递", 4),
 )
 
+INTIMATE_RELATIONSHIP_HINTS: tuple[tuple[str, int], ...] = (
+    ("好朋友", 6),
+    ("好友", 6),
+    ("挚友", 6),
+    ("闺蜜", 6),
+    ("兄弟", 6),
+    ("姐妹", 6),
+    ("伴侣", 7),
+    ("情侣", 7),
+    ("恋人", 7),
+    ("男朋友", 7),
+    ("女朋友", 7),
+    ("老公", 7),
+    ("老婆", 7),
+    ("丈夫", 7),
+    ("妻子", 7),
+    ("爱人", 7),
+    ("家人", 5),
+    ("亲子", 7),
+    ("父母", 7),
+    ("爸妈", 7),
+    ("父子", 7),
+    ("母子", 7),
+    ("父女", 7),
+    ("母女", 7),
+    ("爸爸", 7),
+    ("妈妈", 7),
+    ("子女", 7),
+    ("孩子", 7),
+    ("儿子", 7),
+    ("女儿", 7),
+    ("爷爷", 7),
+    ("奶奶", 7),
+    ("外公", 7),
+    ("外婆", 7),
+    ("亲密", 6),
+)
+
 
 @dataclass(frozen=True)
 class GiftTypeDecision:
@@ -130,14 +168,15 @@ class GiftTypeDecision:
     product_clues: tuple[str, ...] = ()
     shared_participation_clues: tuple[str, ...] = ()
     single_recipient_clues: tuple[str, ...] = ()
+    intimate_relationship_clues: tuple[str, ...] = ()
 
 
 def infer_gift_type(text: str, selected_type: str) -> GiftTypeDecision:
-    """Choose one type using shared participation as the only type boundary.
+    """Choose a type using shared participation and intimacy as hard gates.
 
-    Activity words alone are not enough: an experience can still be a Goods
-    gift when only the recipient uses it. If participation is not stated, the
-    collector's selection is respected and the reason asks for confirmation.
+    Activity words alone are not enough: the giver must join the recipient,
+    and the relationship must be intimate enough for a shared memory. If
+    either fact is missing, an experience is kept as Goods until confirmed.
     """
 
     fallback: GiftTypeCode = "activity" if selected_type == "activity" else "product"
@@ -154,6 +193,9 @@ def infer_gift_type(text: str, selected_type: str) -> GiftTypeDecision:
     single_matches = tuple(
         clue for clue, _weight in SINGLE_RECIPIENT_HINTS if clue in normalized
     )
+    intimate_matches = tuple(
+        clue for clue, _weight in INTIMATE_RELATIONSHIP_HINTS if clue in normalized
+    )
     activity_score = sum(
         weight for clue, weight in ACTIVITY_HINTS if clue in normalized
     )
@@ -165,17 +207,24 @@ def infer_gift_type(text: str, selected_type: str) -> GiftTypeDecision:
         weight for clue, weight in SINGLE_RECIPIENT_HINTS if clue in normalized
     )
 
+    intimate_score = sum(
+        weight for clue, weight in INTIMATE_RELATIONSHIP_HINTS if clue in normalized
+    )
+
     if single_score > 0:
         chosen: GiftTypeCode = "product"
-    elif shared_score > 0 and activity_score > 0 and activity_score >= product_score:
+    elif (
+        shared_score > 0
+        and intimate_score > 0
+        and activity_score > 0
+        and activity_score >= product_score
+    ):
         chosen = "activity"
     elif product_score > 0:
         chosen = "product"
-    elif fallback == "activity" and activity_score > 0:
-        chosen = "activity"
     elif activity_score > 0:
-        # A bare “露营/观星/演唱会” could be a solo voucher. Do not silently
-        # turn it into a shared activity without evidence that the giver joins.
+        # A bare “露营/观星/演唱会”, or a shared plan without an intimate
+        # relationship, must not silently become an Activity.
         chosen = "product"
     else:
         chosen = fallback
@@ -200,10 +249,16 @@ def infer_gift_type(text: str, selected_type: str) -> GiftTypeDecision:
         )
     elif activity_matches:
         clue_text = "、".join(activity_matches[:4])
-        reason = (
-            f"识别到“{clue_text}”等活动场景，但还没有确认送礼人会共同参与；"
-            "按商品暂归类。若送礼人会同行，请切换为活动。"
-        )
+        if shared_matches and not intimate_matches:
+            reason = (
+                f"识别到“{clue_text}”等共同活动场景，但还没有确认双方是亲密关系；"
+                "按商品暂归类。若是好友、情侣或家人等亲密关系，请补充说明后切换为活动。"
+            )
+        else:
+            reason = (
+                f"识别到“{clue_text}”等活动场景，但还没有确认送礼人会共同参与；"
+                "按商品暂归类。若送礼人会同行，请切换为活动。"
+            )
     else:
         type_name = "活动" if chosen == "activity" else "商品"
         reason = (
@@ -218,4 +273,5 @@ def infer_gift_type(text: str, selected_type: str) -> GiftTypeDecision:
         product_clues=product_matches,
         shared_participation_clues=shared_matches,
         single_recipient_clues=single_matches,
+        intimate_relationship_clues=intimate_matches,
     )

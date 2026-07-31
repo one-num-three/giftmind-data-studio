@@ -155,7 +155,7 @@ def test_deepseek_suggest_enforces_activity_type_for_obvious_activity(tmp_path, 
             assert client.post("/api/session/login", json={"passcode": "team-secret"}).status_code == 200
             response = client.post(
                 "/api/ai/suggest",
-                json={"canonicalName": "和朋友一起露营看星星", "giftTypeCode": "product"},
+                json={"canonicalName": "和女朋友一起露营看星星", "giftTypeCode": "product"},
             )
     finally:
         tools_route.get_settings.cache_clear()

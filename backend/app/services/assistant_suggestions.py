@@ -416,13 +416,13 @@ def _assistant_prompt(gift_type_code: str, type_decision: GiftTypeDecision | Non
     type_reason = type_decision.reason if type_decision else "按当前选择的类型处理。"
     return f"""You are a professional AI gift advisor helping a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The hard expected type is {gift_type_code}. The deterministic type decision is: {type_reason}.
 
-The only boundary between Goods and Activity is whether the gift giver participates together with the recipient. Goods means the giver does not need to show up and, after delivery, the recipient owns or uses it alone. Goods includes physical products, single-person experiences or services such as a solo spa voucher, individual diving lesson, personal gym card, or electronic redemption code. For Goods, advise on creating an unboxing or receiving surprise and produce a custom-card or delivery-message direction. Activity means the giver must participate with the recipient, in a two-person or group experience such as shared camping, pottery, a concert, a meal, or an escape room. For Activity, advise on a friendly invitation, schedule coordination, avoiding social pressure, and an invitation letter or promise-coupon direction.
+The boundary between Goods and Activity has two hard requirements: the gift giver participates together with the recipient, and their relationship is intimate enough for that shared time to make sense. Goods means the giver does not need to show up and, after delivery, the recipient owns or uses it alone. Goods includes physical products, single-person experiences or services such as a solo spa voucher, individual diving lesson, personal gym card, or electronic redemption code. For Goods, advise on creating an unboxing or receiving surprise and produce a custom-card or delivery-message direction. Activity means the giver must participate with the recipient, in a two-person or group experience such as shared camping, pottery, a concert, a meal, or an escape room, and the relationship should be a close one such as partners, close friends, or family. For Activity, advise on a friendly invitation, schedule coordination, avoiding social pressure, and an invitation letter or promise-coupon direction.
 
-Never classify an experience as Activity merely because it is an experience: first look for shared participation such as 一起、共同、双人、多人、陪你、和朋友、我们、相约 or 邀请. If the recipient is explicitly alone, or the giver is only sending a voucher or item, use Goods. If participation is not stated, do not invent that the giver will attend; keep the selected type and clearly ask the collector to confirm it.
+Activity has two hard requirements: the giver and recipient participate together, and their relationship is intimate enough for this shared time to make sense. Look for shared participation such as 一起、共同、双人、多人、陪你、相约 or 邀请, plus an intimate relationship such as 好朋友、好友、闺蜜、伴侣、情侣、恋人、家人、父母或子女. Do not treat 同事、客户、普通合作关系 or an unspecified “朋友” as sufficient proof of intimacy. If either participation or intimacy is missing, do not invent it; keep the selected type and ask the collector to confirm. If the recipient is explicitly alone, or the giver is only sending a voucher or item, use Goods.
 
 Use the guidance fields according to the type: for Goods, purchaseOrBookingTip should cover delivery, timing, unboxing, or redemption; ritualTip should explain a natural surprise setup; pairingIdeas should include 2-3 short card or delivery-message directions. For Activity, purchaseOrBookingTip should cover booking and coordinating dates; ritualTip should explain how to invite without pressure; pairingIdeas should include 2-3 invitation-letter, promise-coupon, or opening-script directions. Do not fill activity-only guidance for Goods or goods-only guidance for Activity.
 
-Type is a hard constraint. recommendedGiftTypeCode MUST be exactly {gift_type_code}; never return the opposite type because of a stale or default UI selection. If the input describes a shared activity with the giver participating (for example 一起露营、双人观星、共同体验课程、一起看演出), use activity and fill activityDetails. If the experience is for the recipient alone, use product. If participation is not stated, keep the hard expected type and ask for confirmation rather than inventing a shared plan. If the input describes an item people buy, own, consume, ship, or use (for example 礼盒、冰箱贴、书签、镜头、帐篷、底料、茶叶), use product and fill productDetails. Activity and product details are mutually exclusive: do not put booking, duration, participants, or service regions into productDetails; do not put materials, shipping, sizes, or generic product names into activityDetails.
+Type is a hard constraint. recommendedGiftTypeCode MUST be exactly {gift_type_code}; never return the opposite type because of a stale or default UI selection. Only use activity when the deterministic type decision confirms both shared participation and an intimate relationship; for example, “女朋友一起露营”“和好朋友一起观星”“陪父母一起旅行”. A phrase such as “露营”“双人观星” or “和朋友一起” without a close relationship is not enough; use product for automatic inference and ask for confirmation. If the experience is for the recipient alone, use product. If the input describes an item people buy, own, consume, ship, or use (for example 礼盒、冰箱贴、书签、镜头、帐篷、底料、茶叶), use product and fill productDetails. Activity and product details are mutually exclusive: do not put booking, duration, participants, or service regions into productDetails; do not put materials, shipping, sizes, or generic product names into activityDetails.
 
 Analyze the latest message, conversation, source extracts, and current form values. Use natural Simplified Chinese. shortDescription should be a useful 25-60 character summary. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '. Cover different angles such as the gift's concrete features, the recipient's likely preferences, a suitable occasion, the emotional or practical value, and a useful usage or pairing suggestion; do not repeat the same reason. Each point should be a complete, specific sentence of about 15-40 Chinese characters. Never output template placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}; use natural words such as 收礼人 or 朋友聚会 instead. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
 
@@ -557,7 +557,13 @@ async def generate_assistant_result(
     source_refs: list[dict[str, object]],
     api_key: str | None,
 ) -> dict[str, object]:
-    evidence_parts = [content, str(current_values.get("canonicalName") or ""), str(current_values.get("shortDescription") or "")]
+    evidence_parts = [
+        content,
+        str(current_values.get("canonicalName") or ""),
+        str(current_values.get("shortDescription") or ""),
+        str(current_values.get("recipientTypes") or ""),
+        str(current_values.get("relationshipStages") or ""),
+    ]
     for source in source_refs:
         evidence_parts.extend(
             str(source.get(key) or "")[:2000]
@@ -621,8 +627,22 @@ async def generate_assistant_result(
         if isinstance(model_questions, list)
         else []
     )
-    if type_decision.activity_clues and not type_decision.shared_participation_clues and not type_decision.single_recipient_clues and not type_decision.product_clues:
+    if (
+        type_decision.activity_clues
+        and not type_decision.shared_participation_clues
+        and not type_decision.single_recipient_clues
+        and not type_decision.product_clues
+    ):
         questions.insert(0, "送礼人会和收礼人一起参加吗？如果会，请明确写出“一起、双人或共同参加”；否则按商品处理。")
+        questions = questions[:3]
+    elif (
+        type_decision.activity_clues
+        and type_decision.shared_participation_clues
+        and not type_decision.intimate_relationship_clues
+        and not type_decision.single_recipient_clues
+        and not type_decision.product_clues
+    ):
+        questions.insert(0, "你与收礼人是什么关系？是否属于好朋友、情侣、家人或父母子女等亲密关系？")
         questions = questions[:3]
     for question in _missing_information_questions(current_values, effective_type, raw):
         if len(questions) >= 3:

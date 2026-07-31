@@ -196,7 +196,7 @@ async def test_fallback_preserves_a_written_price_range():
 @pytest.mark.asyncio
 async def test_clear_activity_words_override_product_default():
     result = await generate_assistant_result(
-        content="和她一起露营看星星",
+        content="和女朋友一起露营看星星",
         gift_type_code="product",
         current_values={},
         history=[],
@@ -207,6 +207,22 @@ async def test_clear_activity_words_override_product_default():
     values = {patch["path"]: patch["value"] for patch in result["patches"]}
     assert values["giftTypeCode"] == "activity"
     assert not any(path.startswith("productDetails.") for path in values)
+
+
+@pytest.mark.asyncio
+async def test_shared_activity_without_intimate_relationship_stays_goods():
+    result = await generate_assistant_result(
+        content="和朋友一起露营看星星",
+        gift_type_code="activity",
+        current_values={},
+        history=[],
+        source_refs=[{"label": "用户描述", "status": "ok"}],
+        api_key=None,
+    )
+
+    values = {patch["path"]: patch["value"] for patch in result["patches"]}
+    assert values["giftTypeCode"] == "product"
+    assert any("是什么关系" in question for question in result["questions"])
 
 
 @pytest.mark.asyncio
