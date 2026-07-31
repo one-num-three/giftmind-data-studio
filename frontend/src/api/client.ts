@@ -36,29 +36,36 @@ function formatApiErrorDetail(detail: unknown): string | null {
 
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { body, headers, handleUnauthorized = true, ...requestOptions } = options;
-  const response = await fetch(path, {
-    ...requestOptions,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    credentials: "include",
-    headers: {
-      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-      ...headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(path, {
+      ...requestOptions,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "include",
+      signal: controller.signal,
+      headers: {
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...headers,
+      },
+    });
 
-  if (!response.ok) {
-    if (response.status === 401 && handleUnauthorized) {
-      await onUnauthorized?.();
+    if (!response.ok) {
+      if (response.status === 401 && handleUnauthorized) {
+        await onUnauthorized?.();
+      }
+
+      const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
+      const message = formatApiErrorDetail(payload?.detail) ?? "请求未能完成。";
+      throw new ApiError(message, response.status, payload?.detail);
     }
 
-    const payload = await response.json().catch(() => null) as { detail?: unknown } | null;
-    const message = formatApiErrorDetail(payload?.detail) ?? "请求未能完成。";
-    throw new ApiError(message, response.status, payload?.detail);
-  }
+    if (response.status === 204) {
+      return undefined as T;
+    }
 
-  if (response.status === 204) {
-    return undefined as T;
+    return response.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return response.json() as Promise<T>;
 }

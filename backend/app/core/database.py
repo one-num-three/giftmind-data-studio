@@ -17,5 +17,6 @@ def _configure_sqlite(dbapi_connection: object, _connection_record: object) -> N
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=5000")
+        cursor.execute("PRAGMA wal_autocheckpoint=1")  # prevent data loss on restart
     finally:
         cursor.close()

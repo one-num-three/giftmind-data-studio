@@ -69,6 +69,10 @@ class TaobaoActionInput(APIModel):
     key: str | None = Field(default=None, max_length=64)
 
 
+class ExtractInput(APIModel):
+    url: Annotated[str, Field(min_length=5, max_length=2048)]
+
+
 @router.get("/settings/deepseek")
 async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
     get_settings.cache_clear()
@@ -110,6 +114,24 @@ async def save_deepseek_key(payload: DeepSeekKeyInput, request: Request, _auth: 
     request.app.state.settings.deepseek_api_key = payload.api_key
     get_settings.cache_clear()
     return {"configured": True, "model": DEEPSEEK_MODEL}
+
+
+@router.post("/extract")
+async def extract_page(payload: ExtractInput, request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    """抓取公开页面文字内容。淘宝/天猫链接使用已保存的登录状态。"""
+    from backend.app.services.source_extraction import extract_public_page as _extract
+
+    get_settings.cache_clear()
+    settings = get_settings()
+    state_path = settings.taobao_state_path if settings.taobao_state_path.is_file() else None
+    async with httpx.AsyncClient(timeout=20) as client:
+        return await _extract(
+            payload.url,
+            client,
+            playwright_enabled=settings.playwright_enabled,
+            playwright_timeout_ms=settings.playwright_timeout_ms,
+            taobao_state_path=state_path,
+        )
 
 
 @router.post("/taobao/login")

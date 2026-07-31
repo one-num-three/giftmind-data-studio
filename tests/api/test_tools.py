@@ -2,6 +2,7 @@ from backend.app.core.config import Settings
 from backend.app.main import create_app
 from fastapi.testclient import TestClient
 from backend.app.api.routes import tools as tools_route
+from backend.app.services import source_extraction
 
 
 def create_tools_client(tmp_path) -> TestClient:
@@ -30,6 +31,26 @@ def test_server_status_reports_dependencies_without_returning_secrets(tmp_path):
     assert payload["backend"]["status"] == "ok"
     assert isinstance(payload["deepseek"]["configured"], bool)
     assert "api_key" not in response.text
+
+
+def test_extract_route_uses_server_side_extractor(tmp_path, monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def fake_extract(url, client, **kwargs):
+        captured["url"] = url
+        captured["client"] = client
+        captured["kwargs"] = kwargs
+        return {"url": url, "status": "ok", "title": "测试礼物", "text": "69 元"}
+
+    monkeypatch.setattr(source_extraction, "extract_public_page", fake_extract)
+    with create_tools_client(tmp_path) as client:
+        assert client.post("/api/session/login", json={"passcode": "team-secret"}).status_code == 200
+        response = client.post("/api/extract", json={"url": "https://item.taobao.com/item.htm?id=1"})
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "测试礼物"
+    assert captured["url"] == "https://item.taobao.com/item.htm?id=1"
+    assert captured["kwargs"]["playwright_timeout_ms"] == 20_000
 
 
 def test_deepseek_key_can_be_saved_to_env_without_echoing_it(tmp_path, monkeypatch):
