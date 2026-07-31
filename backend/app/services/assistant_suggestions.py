@@ -24,8 +24,15 @@ FIELD_DEFINITIONS: dict[str, tuple[str, str]] = {
     "tags": ("检索标签", "list"),
     "productDetails.genericProductName": ("通用商品名", "text"),
     "productDetails.materials": ("材质", "list"),
+    "productDetails.colors": ("颜色", "list"),
+    "productDetails.sizes": ("尺寸规格", "list"),
+    "productDetails.variantNotes": ("规格备注", "text"),
+    "productDetails.sizeClass": ("尺寸级别", "text"),
+    "productDetails.packageDimensions": ("包装尺寸", "text"),
     "productDetails.personalizationMethods": ("定制方式", "list"),
+    "productDetails.personalizationRequirements": ("定制要求", "text"),
     "productDetails.shippingRequired": ("需要配送", "boolean"),
+    "productDetails.shippingNotes": ("配送说明", "text"),
     "activityDetails.activityCategory": ("活动类别", "text"),
     "activityDetails.serviceRegions": ("服务区域", "list"),
     "activityDetails.durationMinutesMin": ("最短时长", "number"),
@@ -78,6 +85,20 @@ def _normalize_value(kind: str, value: object) -> object | None:
     return None
 
 
+def _is_measurement_only(value: object) -> bool:
+    return bool(re.fullmatch(r"(?:\d+(?:\.\d+)?\s*)?(?:毫米|厘米|米|mm|cm|m|克|公斤|g|kg)", str(value).strip(), flags=re.IGNORECASE))
+
+
+def _clean_name_value(value: object) -> str | None:
+    """Keep a field name-like instead of letting a sentence or dimension leak in."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    text = re.sub(r"^(?:这是|商品是|礼物是|名称是|请识别|帮我看看|帮我识别|一个|一款|这个|这款)\s*[：:，,\s]*", "", text)
+    text = re.split(r"[，,。；;\n]|(?:直径|尺寸|规格|售价|价格|约为|大约是)", text, maxsplit=1)[0].strip(" ：:，,。")
+    return text[:80] or None
+
+
 def _flatten(raw: Mapping[str, object]) -> dict[str, object]:
     flattened: dict[str, object] = {}
     recommended_type = raw.get("recommendedGiftTypeCode")
@@ -113,6 +134,10 @@ def suggestion_to_patches(
     overall = _clamp_confidence(raw.get("confidence"))
     field_confidence = raw.get("fieldConfidence")
     confidence_map = field_confidence if isinstance(field_confidence, Mapping) else {}
+    field_reasons = raw.get("fieldReasons")
+    reason_map = field_reasons if isinstance(field_reasons, Mapping) else {}
+    field_evidence = raw.get("fieldEvidence")
+    evidence_map = field_evidence if isinstance(field_evidence, Mapping) else {}
     sources = _source_labels(source_refs)
     patches: list[dict[str, object]] = []
     for path, value in _flatten(raw).items():
@@ -120,13 +145,30 @@ def suggestion_to_patches(
         normalized = _normalize_value(kind, value)
         if normalized is None:
             continue
+        if path in {"canonicalName", "productDetails.genericProductName"}:
+            normalized = _clean_name_value(normalized)
+            if normalized is None:
+                continue
+        if path in {"canonicalName", "productDetails.genericProductName"} and _is_measurement_only(normalized):
+            continue
         confidence = _clamp_confidence(confidence_map.get(path), overall)
+        reason = reason_map.get(path)
+        reason_text = str(reason).strip() if reason is not None else ""
+        evidence = evidence_map.get(path)
+        if isinstance(evidence, list):
+            evidence_items = [str(item).strip() for item in evidence if str(item).strip()][:3]
+        elif evidence is not None and str(evidence).strip():
+            evidence_items = [str(evidence).strip()]
+        else:
+            evidence_items = []
         patches.append(
             {
                 "path": path,
                 "label": label,
                 "value": deepcopy(normalized),
                 "confidence": confidence,
+                "reason": reason_text or None,
+                "evidence": evidence_items,
                 "sourceRefs": sources.copy(),
                 "status": "pending",
             }
@@ -143,13 +185,17 @@ def _fallback_raw(
     first_source = next((item for item in source_refs or [] if item.get("status") == "ok"), {})
     source_title = str(first_source.get("title") or first_source.get("label") or "").strip()
     source_description = str(first_source.get("description") or first_source.get("text") or "").strip()
-    display_name = clean[:80] or source_title[:80]
+    display_name = _guess_name(clean, source_title)
+    if clean in {"识别图片", "请识别图片", "分析图片", "看看这张图"} and source_description:
+        display_name = _guess_name(source_description, "")
+    detail_text = source_description or clean
+    analysis_text = " ".join(part for part in (clean, source_title, source_description) if part)
     number_pattern = r"\d+(?:\.\d{1,2})?"
     price_range = re.search(
         rf"(?:¥|￥|约|预算|价格|价)?\s*({number_pattern})\s*(?:到|至|[-~～])\s*({number_pattern})\s*元",
-        content,
+        analysis_text,
     )
-    price_match = re.search(rf"(?:¥|￥|约|价格|价)?\s*({number_pattern})\s*元", content)
+    price_match = re.search(rf"(?:¥|￥|约|价格|价)?\s*({number_pattern})\s*元", analysis_text)
     if price_range:
         first_price, second_price = (float(price_range.group(1)), float(price_range.group(2)))
         price_min, price_max = sorted((first_price, second_price))
@@ -163,28 +209,161 @@ def _fallback_raw(
     raw: dict[str, object] = {
         "canonicalName": display_name or None,
         "recommendedGiftTypeCode": gift_type_code,
-        "shortDescription": (source_description[:120] or clean[:120]) or "请结合来源补充礼物说明。",
-        "whyTemplate": f"可以把{display_name[:40] or '这份礼物'}送给合适的对象，请人工确认具体匹配关系。",
+        "shortDescription": _build_description(display_name, detail_text),
+        "whyTemplate": None,
         "priceMin": price_min,
         "priceMax": price_max,
         "confidence": 0.42,
+        "fieldConfidence": {
+            "canonicalName": 0.78 if display_name else 0.0,
+            "shortDescription": 0.76 if detail_text else 0.0,
+            "priceMin": 0.68 if price_min is not None else 0.0,
+            "priceMax": 0.68 if price_max is not None else 0.0,
+        },
+        "fieldReasons": {},
+        "fieldEvidence": {},
     }
     if gift_type_code == "product":
-        materials = [name for name in ("黄铜", "金属", "木质", "陶瓷", "玻璃", "皮革") if name in content]
-        raw["productDetails"] = {"materials": materials}
+        details, inferred = _infer_product_details(analysis_text)
+        raw["productDetails"] = details
+        match = _infer_matching_fields(analysis_text, display_name)
+        raw.update(match)
+        raw["fieldConfidence"].update({path: 0.74 for path in inferred})
+        raw["fieldEvidence"].update({path: [evidence] for path, evidence in _evidence_for_product(analysis_text, details).items()})
+        raw["fieldReasons"].update({path: "从你提供的名称或描述中直接识别。" for path in inferred})
+        for field in ("recipientTypes", "occasions", "interests", "tags"):
+            if raw.get(field):
+                raw["fieldConfidence"][field] = 0.64
+                raw["fieldReasons"][field] = "根据描述中的主题线索做的低置信推断，建议人工确认。"
+                raw["fieldEvidence"][field] = match.get("whyEvidence") or ["描述中出现了相关主题线索。"]
     else:
         raw["activityDetails"] = {}
+    if price_min is not None:
+        raw["fieldEvidence"]["priceMin"] = [f"识别到价格提示：{price_min:g} 元"]
+        raw["fieldEvidence"]["priceMax"] = [f"识别到价格提示：{price_max:g} 元"]
+        raw["fieldReasons"]["priceMin"] = "来源中出现了价格数字，但仍需确认它是单件价还是其他价格。"
+        raw["fieldReasons"]["priceMax"] = "来源中出现了价格数字，但仍需确认它是单件价还是其他价格。"
+    raw["fieldEvidence"]["canonicalName"] = [display_name] if display_name else []
+    raw["fieldEvidence"]["shortDescription"] = [detail_text[:160]] if detail_text else []
+    raw["fieldReasons"]["canonicalName"] = "按名称或描述中的主体词整理，不把尺寸单位当作商品名。"
+    raw["fieldReasons"]["shortDescription"] = "保留已提供的事实，不补写未提供的材质、价格或功能。"
+    match = _infer_matching_fields(analysis_text, display_name)
+    if match.get("whyTemplate"):
+        raw["whyTemplate"] = match["whyTemplate"]
+        raw["fieldConfidence"]["whyTemplate"] = 0.68
+        raw["fieldEvidence"]["whyTemplate"] = match["whyEvidence"]
+        raw["fieldReasons"]["whyTemplate"] = "根据描述中的对象线索和礼物用途做的低置信推断。"
+    raw["followUpQuestions"] = _fallback_questions(analysis_text, gift_type_code, price_min)
     return raw
+
+
+def _guess_name(clean: str, source_title: str) -> str:
+    if (
+        source_title
+        and source_title not in {"用户描述", "用户上传图片", "商品详情", "网页来源", "商品链接"}
+        and not source_title.startswith("http")
+        and not re.match(r"^(?:图片|文件|附件)\s*[:：]", source_title)
+    ):
+        return source_title[:80]
+    text = re.sub(r"^(?:这是|商品是|礼物是|名称是|请识别|帮我看看|帮我识别|OCR|图片描述|识别结果|商品标题)[：:，,\s]*", "", clean, flags=re.IGNORECASE)
+    text = re.split(r"[，,。；;\n]", text, maxsplit=1)[0].strip()
+    text = re.sub(r"^(?:一个|一款|这个|这款)\s*", "", text)
+    text = re.split(r"(?:直径|尺寸|规格|售价|价格|约为|大约是)", text, maxsplit=1)[0].strip(" ：:，,。")
+    return text[:80]
+
+
+def _build_description(name: str, detail_text: str) -> str | None:
+    if not detail_text:
+        return name or None
+    text = re.sub(r"\s+", " ", detail_text).strip()
+    if name and text == name:
+        return f"{name}，具体材质、价格和适用对象待确认。"
+    if name:
+        for prefix in ("一个", "一款", "这个", "这款"):
+            if text.startswith(prefix + name):
+                remainder = text[len(prefix) + len(name) :].strip(" ：:，,。")
+                if remainder:
+                    return f"{name}，{remainder.rstrip('。')}。"
+                break
+    return text[:160]
+
+
+def _infer_product_details(text: str) -> tuple[dict[str, object], list[str]]:
+    details: dict[str, object] = {}
+    inferred: list[str] = []
+    categories = ("冰箱贴", "书签", "徽章", "钥匙扣", "明信片", "笔记本", "保温杯", "水杯", "香薰", "帆布袋", "玩偶")
+    category = next((item for item in categories if item in text), None)
+    if category:
+        details["genericProductName"] = category
+        inferred.append("productDetails.genericProductName")
+    materials = [name for name in ("黄铜", "金属", "木质", "陶瓷", "玻璃", "皮革", "棉麻", "纸张", "塑料") if name in text]
+    if materials:
+        details["materials"] = materials
+        inferred.append("productDetails.materials")
+    sizes = [f"{number} {unit}" for number, unit in re.findall(r"(?:直径|尺寸|长宽高)?\s*(\d+(?:\.\d+)?)\s*(厘米|cm|毫米|mm)", text, flags=re.IGNORECASE)]
+    if sizes:
+        details["sizes"] = sizes
+        inferred.append("productDetails.sizes")
+    return details, inferred
+
+
+def _evidence_for_product(text: str, details: Mapping[str, object]) -> dict[str, str]:
+    evidence: dict[str, str] = {}
+    if details.get("genericProductName"):
+        evidence["productDetails.genericProductName"] = f"描述中出现“{details['genericProductName']}”"
+    if details.get("materials"):
+        evidence["productDetails.materials"] = "描述中出现：" + "、".join(map(str, details["materials"]))
+    if details.get("sizes"):
+        evidence["productDetails.sizes"] = "描述中出现：" + "、".join(map(str, details["sizes"]))
+    return evidence
+
+
+def _infer_matching_fields(text: str, name: str) -> dict[str, object]:
+    institution_match = re.search(r"([\u4e00-\u9fa5]{2,}(?:大学|学院|学校))", text)
+    institution = institution_match.group(1) if institution_match else ""
+    institution = re.sub(r"^(?:一个|一款|这个|这款)", "", institution)
+    result: dict[str, object] = {"recipientTypes": [], "occasions": [], "interests": [], "tags": []}
+    if "校徽" in text or "校园" in text:
+        result["recipientTypes"] = [f"{institution}校友" if institution else "校友", "在校学生"]
+        result["occasions"] = ["毕业", "纪念"]
+        result["interests"] = ["校园文化", "收藏"]
+        result["tags"] = ["校园文创", "纪念品", "小体积"]
+        target = institution or "校园"
+        result["whyTemplate"] = f"适合送给{target}校友或在校学生，适合作为毕业、返校或纪念场景中的小礼物。"
+        result["whyEvidence"] = [f"描述中出现“{target}”和“校徽”"]
+    elif any(keyword in text for keyword in ("博物馆", "文创", "景区")):
+        result["recipientTypes"] = ["喜欢文化旅行的人", "收藏爱好者"]
+        result["occasions"] = ["旅行纪念", "纪念"]
+        result["interests"] = ["文化", "旅行", "收藏"]
+        result["tags"] = ["文创", "纪念品"]
+        result["whyEvidence"] = ["描述中出现“博物馆”“文创”或“景区”等文化旅行线索"]
+    return result
+
+
+def _fallback_questions(text: str, gift_type_code: str, price_min: float | None) -> list[str]:
+    questions: list[str] = []
+    if price_min is None:
+        questions.append("单件实际售价或常见价格区间是多少？")
+    if gift_type_code == "product" and not any(keyword in text for keyword in ("材质", "金属", "木质", "陶瓷", "玻璃", "皮革")):
+        questions.append("材质是什么？如果不确定，可以先留空。")
+    questions.append("最希望推荐给哪类人，或用于什么送礼场景？")
+    return questions[:3]
 
 
 def _assistant_prompt(gift_type_code: str) -> str:
     return f"""You help a Chinese gift-data collection team. Return one JSON object only.
 The currently selected type is {gift_type_code}. Use supplied conversation, source extracts,
 and current form values. Never invent a merchant, exact URL, address, or unsupported fact.
+Do not copy a whole user message into canonicalName. Do not use filler such as “适合送给合适的对象”;
+if a field cannot be supported, return null or []. A whyTemplate must name a concrete recipient or
+occasion only when the source supports it, and should explain the practical or emotional reason in one
+natural Chinese sentence. Price must be null unless the source clearly contains a price.
 Return canonicalName, recommendedGiftTypeCode, shortDescription, priceMin, priceMax, isFree, whyTemplate,
 recipientTypes[], occasions[], interests[], tags[], confidence, fieldConfidence,
+fieldReasons {{fieldPath: concise reason}}, fieldEvidence {{fieldPath: short exact quote or observed fact}},
 followUpQuestions[] with at most 3 concise questions for important facts that remain unknown, plus
-productDetails {{genericProductName, materials[], personalizationMethods[], shippingRequired}}
+productDetails {{genericProductName, materials[], colors[], sizes[], variantNotes, sizeClass,
+packageDimensions, personalizationMethods[], personalizationRequirements, shippingRequired, shippingNotes}}
 or activityDetails {{activityCategory, serviceRegions[], durationMinutesMin,
 durationMinutesMax, participantsMin, participantsMax, bookingRequired,
 bookingLeadDaysMin, bookingLeadDaysMax}}. Use null or [] when unknown."""
@@ -232,6 +411,34 @@ def _parse_json_object(content: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError("assistant result is not an object")
     return value
+
+
+def _has_substantive_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    return True
+
+
+def _merge_model_with_fallback(
+    model_raw: Mapping[str, object],
+    fallback_raw: Mapping[str, object],
+) -> dict[str, object]:
+    """Keep verified rule facts when a model response is sparse."""
+    merged = deepcopy(dict(fallback_raw))
+    for key, value in model_raw.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
+            nested = dict(merged[key])  # type: ignore[arg-type]
+            for nested_key, nested_value in value.items():
+                if _has_substantive_value(nested_value):
+                    nested[nested_key] = deepcopy(nested_value)
+            merged[key] = nested
+        elif _has_substantive_value(value):
+            merged[key] = deepcopy(value)
+    return merged
 
 
 async def generate_assistant_result(
@@ -286,7 +493,8 @@ async def generate_assistant_result(
                     },
                 )
                 response.raise_for_status()
-                raw = _parse_json_object(response.json()["choices"][0]["message"]["content"])
+                model_raw = _parse_json_object(response.json()["choices"][0]["message"]["content"])
+                raw = _merge_model_with_fallback(model_raw, raw)
                 source = "deepseek"
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             source = "rule"

@@ -29,17 +29,20 @@
       </article>
       <section v-for="run in runs" :key="run.id" class="suggestions">
         <div class="suggestions__heading">
-          <strong>字段建议</strong>
+          <div><strong>整理结果</strong><small>{{ run.source === 'deepseek' ? 'DeepSeek 分析' : '规则兜底 · 信息有限' }}</small></div>
           <div>
-            <button data-ai-apply-all type="button" @click="applyAll(run)">应用全部</button>
-            <button type="button" @click="applyHighConfidence(run)">只应用高可信</button>
+            <button data-ai-apply-all type="button" @click="applyAll(run)">全部填入</button>
+            <button type="button" @click="applyHighConfidence(run)">只填入可采纳</button>
             <button data-ai-clear-run type="button" @click="clearRun(run)">清除本次</button>
           </div>
         </div>
+        <p v-if="run.source !== 'deepseek'" class="suggestions__notice">当前没有得到模型完整分析，下面只展示从你提供的内容中能确认或谨慎推断的结果；带“仅供参考”的内容不要直接采用。</p>
         <article v-for="patch in run.patches" :key="patch.path" :class="['patch', `patch--${patch.status}`]">
-          <div><strong>{{ patch.label }}</strong><small>{{ Math.round(patch.confidence * 100) }}% 可信</small></div>
-          <p>{{ formatValue(patch.value) }}</p>
-          <small v-if="patch.sourceRefs?.length" class="patch__source">来源：{{ patch.sourceRefs.join('、') }}</small>
+          <div class="patch__head"><strong>{{ patch.label }}</strong><span :class="['confidence', confidenceTone(patch.confidence)]">{{ confidenceLabel(patch.confidence) }} · {{ Math.round(patch.confidence * 100) }}%</span></div>
+          <p class="patch__value">{{ formatValue(patch.value) }}</p>
+          <p v-if="patch.reason" class="patch__reason">{{ patch.reason }}</p>
+          <div v-if="patch.evidence?.length" class="patch__evidence"><small>依据</small><span v-for="item in patch.evidence" :key="item">“{{ item }}”</span></div>
+          <small v-if="patch.sourceRefs?.length" class="patch__source">来源：{{ patch.sourceRefs.map(sourceLabel).join('、') }}</small>
           <div class="patch__actions">
             <button v-if="patch.status !== 'applied'" type="button" @click="applyPatch(run, patch)">填入</button>
             <button v-else data-ai-undo type="button" @click="undoPatch(run, patch)">撤销</button>
@@ -224,6 +227,9 @@ function requestUndo(path: string): boolean {
   return true;
 }
 
+function confidenceLabel(value: number) { return value >= .8 ? "可采纳" : value >= .6 ? "建议核对" : "仅供参考"; }
+function confidenceTone(value: number) { return value >= .8 ? "confidence--good" : value >= .6 ? "confidence--check" : "confidence--low"; }
+function sourceLabel(value: string) { return value === "用户描述" ? "你提供的内容" : value; }
 function formatValue(value: unknown) { return Array.isArray(value) ? value.join("、") : typeof value === "boolean" ? (value ? "是" : "否") : String(value); }
 async function bindGift(giftId: string) { if (threadId.value) await bindAssistantThread(threadId.value, giftId); }
 defineExpose({ bindGift });
@@ -236,5 +242,6 @@ defineExpose({ bindGift });
 .message-sources { display: grid; gap: 3px; margin: 8px 0 0; padding-left: 18px; font-size: .72rem; }.message-sources a { color: inherit; overflow-wrap: anywhere; }
 .suggestions { display: grid; gap: 8px; margin: 10px 0 18px; }.suggestions__heading { display: grid; gap: 6px; }.suggestions__heading > div { display: flex; flex-wrap: wrap; gap: 4px; }.suggestions__heading button { padding: 3px 5px; border: 0; color: var(--color-primary); background: transparent; font-size: .75rem; font-weight: 700; }.patch { padding: 11px; border: 1px solid #e2dfd2; border-radius: 12px; background: white; }.patch--applied { border-color: #79a98e; background: #eef7f1; }.patch--ignored { opacity: .55; }.patch > div { display: flex; justify-content: space-between; gap: 8px; }.patch small { color: var(--color-ink-muted); }.patch p { margin: 7px 0; color: var(--color-ink); }.patch__source { display: block; margin-bottom: 8px; line-height: 1.4; }.patch__actions { justify-content: flex-end !important; }.patch__actions button { padding: 5px 9px; border: 1px solid var(--color-border); border-radius: 7px; background: white; }
 .ai-panel footer { display: grid; gap: 9px; padding: 13px; border-top: 1px solid var(--color-border); background: white; }.ai-panel textarea { width: 100%; resize: none; border: 1px solid var(--color-border); border-radius: 12px; padding: 10px; font: inherit; }.composer-actions { display: flex; justify-content: space-between; gap: 8px; }.composer-actions label { display: inline-flex; align-items: center; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-primary); font-weight: 700; cursor: pointer; }.composer-actions input { position: absolute; width: 1px; height: 1px; opacity: 0; }.composer-actions > button { padding: 8px 12px; border: 0; border-radius: 9px; color: white; background: var(--color-primary); font-weight: 800; }.pending-images { display: flex; flex-wrap: wrap; gap: 6px; }.pending-images span { padding: 5px 8px; border-radius: 8px; background: #f2efe4; font-size: .75rem; }.pending-images button { border: 0; background: transparent; }.ai-error { color: #a62d28; font-size: .8rem; }.ai-panel footer > small { color: var(--color-ink-muted); }
+.suggestions__heading > div:first-child { display: flex; align-items: baseline; gap: 8px; }.suggestions__heading > div:first-child small { color: var(--color-ink-muted); font-size: .72rem; font-weight: 500; }.suggestions__notice { margin: 0; padding: 9px 11px; border-radius: 10px; color: #7b5b1a; background: #fff7df; font-size: .78rem; line-height: 1.45; }.patch { padding: 12px; }.patch__head { align-items: center; }.patch__head strong { color: var(--color-ink); }.confidence { flex: none; padding: 3px 7px; border-radius: 999px; font-size: .7rem; font-weight: 800; }.confidence--good { color: #216844; background: #e4f4e9; }.confidence--check { color: #7b5b1a; background: #fff2cc; }.confidence--low { color: #9a4038; background: #ffebe8; }.patch__value { margin: 8px 0 5px !important; font-size: .96rem; line-height: 1.55; }.patch__reason { margin: 0 0 8px !important; color: var(--color-ink-muted) !important; font-size: .78rem; line-height: 1.45; }.patch__evidence { display: grid; gap: 3px; margin: 8px 0; padding: 7px 9px; border-left: 2px solid #d5c08b; color: #806a32; background: #fffbef; font-size: .74rem; line-height: 1.4; }.patch__evidence small { color: #806a32; font-weight: 800; }.patch__evidence span { overflow-wrap: anywhere; }.patch__source { color: var(--color-ink-muted); font-size: .7rem; }
 @media (max-width: 600px) { .ai-panel { inset: auto 0 0; width: 100%; height: 82vh; border-radius: 20px 20px 0 0; }.ai-launcher { right: 14px; bottom: 16px; } }
 </style>

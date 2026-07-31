@@ -8,7 +8,7 @@ export interface AssistantMessage {
   attachments: AssistantAttachment[];
   sourceRefs?: Array<{ label?: string; url?: string; status?: string; error?: string }>;
 }
-export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; sourceRefs?: string[]; status: "pending" | "applied" | "ignored"; }
+export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; reason?: string | null; evidence?: string[]; sourceRefs?: string[]; status: "pending" | "applied" | "ignored"; }
 export interface SuggestionRun { id: string; patches: FieldPatch[]; appliedFields: string[]; ignoredFields: string[]; source?: "deepseek" | "rule"; }
 export interface AssistantThread { id: string; giftId?: string | null; messages: AssistantMessage[]; suggestionRuns: SuggestionRun[]; }
 export interface AssistantTurn { userMessage: AssistantMessage; assistantMessage: AssistantMessage; suggestionRun: SuggestionRun; }

@@ -1,6 +1,6 @@
 import pytest
 
-from backend.app.services.assistant_suggestions import generate_assistant_result, suggestion_to_patches
+from backend.app.services.assistant_suggestions import _fallback_raw, generate_assistant_result, suggestion_to_patches
 
 
 def test_patch_normalizer_drops_unknown_paths_and_clamps_confidence():
@@ -81,10 +81,29 @@ def test_patch_normalizer_uses_per_field_confidence_and_omits_empty_values():
             "label": "送礼理由",
             "value": "适合表达心意。",
             "confidence": 0.87,
+            "reason": None,
+            "evidence": [],
             "sourceRefs": ["用户描述"],
             "status": "pending",
         }
     ]
+
+
+def test_fallback_turns_measurement_description_into_reviewable_facts():
+    raw = _fallback_raw(
+        "一个东南大学的圆形校徽冰箱贴，直径是 5 厘米",
+        "product",
+        [{"label": "用户描述", "status": "ok"}],
+    )
+    patches = suggestion_to_patches(raw, [{"label": "用户描述"}])
+    values = {item["path"]: item["value"] for item in patches}
+
+    assert values["canonicalName"] == "东南大学的圆形校徽冰箱贴"
+    assert values["productDetails.genericProductName"] == "冰箱贴"
+    assert values["productDetails.sizes"] == ["5 厘米"]
+    assert "合适的对象" not in str(values.get("whyTemplate", ""))
+    assert "校友" in str(values["whyTemplate"])
+    assert next(item for item in patches if item["path"] == "productDetails.sizes")["evidence"]
 
 
 @pytest.mark.asyncio
@@ -125,6 +144,7 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
     assert "黄铜书签" in latest
     assert "image_url" not in latest
     assert result["source"] == "deepseek"
+    assert any(item["path"] == "productDetails.genericProductName" for item in result["patches"])
 
 
 @pytest.mark.asyncio

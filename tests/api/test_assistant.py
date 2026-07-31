@@ -132,7 +132,7 @@ def test_review_state_and_gift_binding_are_persisted(tmp_path):
         ).json()
         turn = client.post(
             f"/api/ai/threads/{thread['id']}/messages",
-            json={"content": "黄铜书签", "giftTypeCode": "product", "currentValues": {}},
+            json={"content": "东南大学校徽黄铜书签", "giftTypeCode": "product", "currentValues": {}},
         ).json()
         run_id = turn["suggestionRun"]["id"]
         review = client.patch(
