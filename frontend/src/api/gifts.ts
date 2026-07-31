@@ -43,6 +43,7 @@ export type GiftPayload = CommonGiftPayload & (
 
 export type GiftRead = GiftPayload & { id: string; schemaVersion: number; completenessScore: number | null; createdAt?: string; updatedAt?: string; deletedAt?: string | null };
 export interface DuplicateMatch { canonical_name: string; similarity: number; exact: boolean; }
+export interface DuplicatePair { left: { id: string; canonical_name: string }; right: { id: string; canonical_name: string }; similarity: number; exact: boolean; }
 export interface GiftListFilters {
   q?: string; status?: string; giftType?: GiftTypeCode; carrierOrMode?: string; isCustomizable?: boolean;
   isBundle?: boolean; priceMin?: number; priceMax?: number; minCompleteness?: number; hasImage?: boolean;
@@ -80,4 +81,8 @@ export async function findGiftDuplicates(canonicalName: string, aliases: string[
   aliases.forEach((alias) => search.append("aliases", alias));
   const result = await apiRequest<{ matches: DuplicateMatch[] }>(`/api/gifts/duplicates?${search}`);
   return Array.isArray(result.matches) ? result.matches : [];
+}
+export async function scanGiftDuplicates(): Promise<DuplicatePair[]> {
+  const result = await apiRequest<{ pairs: DuplicatePair[] }>("/api/gifts/duplicate-groups");
+  return result.pairs;
 }

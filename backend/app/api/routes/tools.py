@@ -8,11 +8,11 @@ import json
 import re
 import zipfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from pydantic import Field
@@ -57,6 +57,16 @@ class DeepSeekKeyInput(APIModel):
     api_key: Annotated[str, Field(min_length=10, max_length=256, pattern=r"^\S+$")]
 
 
+class TaobaoActionInput(APIModel):
+    action: Literal["click", "type", "press", "drag", "reload"]
+    x: float | None = Field(default=None, ge=0, le=3000)
+    y: float | None = Field(default=None, ge=0, le=3000)
+    end_x: float | None = Field(default=None, ge=0, le=3000)
+    end_y: float | None = Field(default=None, ge=0, le=3000)
+    text: str | None = Field(default=None, max_length=2000)
+    key: str | None = Field(default=None, max_length=64)
+
+
 @router.get("/settings/deepseek")
 async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
     get_settings.cache_clear()
@@ -65,7 +75,7 @@ async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
 
 
 @router.put("/settings/deepseek")
-async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) -> dict[str, object]:
+async def save_deepseek_key(payload: DeepSeekKeyInput, request: Request, _auth: ProtectedSession) -> dict[str, object]:
     env_path = Path(".env")
     lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
     replacement = f"DEEPSEEK_API_KEY={payload.api_key}"
@@ -80,8 +90,76 @@ async def save_deepseek_key(payload: DeepSeekKeyInput, _auth: ProtectedSession) 
     if not replaced:
         output.append(replacement)
     env_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    request.app.state.settings.deepseek_api_key = payload.api_key
     get_settings.cache_clear()
     return {"configured": True, "model": DEEPSEEK_MODEL}
+
+
+@router.post("/taobao/login")
+async def start_taobao_login(request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    try:
+        return await request.app.state.taobao_login.start()
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"淘宝登录浏览器启动失败：{type(error).__name__}") from error
+
+
+@router.get("/taobao/login/{session_id}/status")
+async def taobao_login_status(session_id: UUID, request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    try:
+        return await request.app.state.taobao_login.status(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="淘宝登录会话已过期") from error
+
+
+@router.get("/taobao/login/{session_id}/screenshot")
+async def taobao_login_screenshot(session_id: UUID, request: Request, _auth: ProtectedSession) -> Response:
+    try:
+        image = await request.app.state.taobao_login.screenshot(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="淘宝登录会话已过期") from error
+    return Response(content=image, media_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+@router.post("/taobao/login/{session_id}/action")
+async def taobao_login_action(
+    session_id: UUID,
+    payload: TaobaoActionInput,
+    request: Request,
+    _auth: ProtectedSession,
+) -> dict[str, object]:
+    try:
+        return await request.app.state.taobao_login.action(
+            session_id,
+            payload.action,
+            x=payload.x,
+            y=payload.y,
+            end_x=payload.end_x,
+            end_y=payload.end_y,
+            text=payload.text,
+            key=payload.key,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="淘宝登录会话已过期") from error
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.post("/taobao/login/{session_id}/complete")
+async def complete_taobao_login(session_id: UUID, request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    try:
+        return await request.app.state.taobao_login.save(session_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="淘宝登录会话已过期") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.delete("/taobao/login")
+async def clear_taobao_login(request: Request, _auth: ProtectedSession) -> dict[str, bool]:
+    await request.app.state.taobao_login.clear()
+    return {"cleared": True}
 
 
 @router.get("/custom-fields")

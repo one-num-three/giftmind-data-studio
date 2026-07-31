@@ -28,6 +28,7 @@ describe("GiftWorkbenchView", () => {
     setActivePinia(createPinia());
     apiRequest.mockReset();
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it("shows only product fields after product confirmation", async () => {
@@ -190,6 +191,26 @@ describe("GiftWorkbenchView", () => {
 
     expect(apiRequest).toHaveBeenCalledWith("/api/gifts", expect.objectContaining({ method: "POST" }));
     expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("");
+  });
+
+  it("loads one batch-link result as an AI-highlighted review draft", async () => {
+    sessionStorage.setItem("giftmind.batchDraft", JSON.stringify({
+      giftTypeCode: "product",
+      url: "https://example.com/gift",
+      suggestedName: "黄铜书签",
+      patches: [
+        { path: "canonicalName", label: "标准名称", value: "黄铜书签", confidence: .9, status: "pending" },
+        { path: "priceMin", label: "最低价格", value: 69, confidence: .85, status: "pending" },
+      ],
+      duplicates: [],
+    }));
+    const wrapper = mountWorkbench();
+    await flushPromises();
+
+    expect((wrapper.get('[data-field="canonical-name"]').element as HTMLInputElement).value).toBe("黄铜书签");
+    expect((wrapper.get('[data-field="price-min"]').element as HTMLInputElement).value).toBe("69");
+    expect(wrapper.text()).toContain("批量链接建议已载入");
+    expect(sessionStorage.getItem("giftmind.batchDraft")).toBeNull();
   });
 
   it("creates the gift before uploading queued images and only then starts the next record", async () => {

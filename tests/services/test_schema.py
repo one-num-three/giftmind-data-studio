@@ -125,14 +125,15 @@ def test_initial_migration_creates_versioned_contract_and_seed_types(tmp_path):
             "gifts", "product_details", "product_offers", "activity_details", "activity_offers",
             "gift_bundle_components", "gift_type_definitions", "dimension_options",
             "custom_field_definitions", "gift_custom_field_values", "gift_images", "audit_events",
-            "ai_runs", "import_runs", "backup_records",
+            "ai_runs", "ai_threads", "ai_messages", "ai_suggestion_runs",
+            "import_runs", "backup_records",
         }.issubset(inspect(engine).get_table_names())
         with engine.connect() as connection:
             revision = MigrationContext.configure(connection).get_current_revision()
             seeded_codes = connection.execute(
                 select(GiftTypeDefinition.code).order_by(GiftTypeDefinition.code)
             ).scalars().all()
-        assert revision == "0001_initial_schema"
+        assert revision == "0002_ai_assistant_threads"
         assert seeded_codes == ["activity", "product"]
     finally:
         engine.dispose()

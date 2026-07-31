@@ -12,6 +12,7 @@ from backend.app.models.assets import GiftImage
 from backend.app.models.gift import ActivityOffer, Gift, ProductOffer
 from backend.app.models.operations import AuditEvent
 from backend.app.schemas.common import APIModel
+from backend.app.services.duplicates import normalize_name, trigram_similarity
 
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
@@ -93,14 +94,22 @@ async def read_dashboard(session: DatabaseSession, _auth: ProtectedSession) -> D
 
 
 def _possible_duplicate_count(gifts: list[Gift]) -> int:
-    """Count records sharing a normalized canonical name or alias."""
-    identifiers: dict[str, set[str]] = {}
-    for gift in gifts:
-        for value in [gift.canonical_name, *gift.aliases]:
-            normalized = value.strip().casefold()
-            if normalized:
-                identifiers.setdefault(normalized, set()).add(gift.id)
-    duplicate_ids = set().union(*(ids for ids in identifiers.values() if len(ids) > 1)) if identifiers else set()
+    """Count records participating in exact or high-similarity pairs."""
+    duplicate_ids: set[str] = set()
+    for left_index, left in enumerate(gifts):
+        for right in gifts[left_index + 1:]:
+            similarities = [
+                trigram_similarity(left_name, right_name)
+                for left_name in [left.canonical_name, *left.aliases]
+                for right_name in [right.canonical_name, *right.aliases]
+            ]
+            exact = any(
+                normalize_name(left_name) == normalize_name(right_name)
+                for left_name in [left.canonical_name, *left.aliases]
+                for right_name in [right.canonical_name, *right.aliases]
+            )
+            if exact or (similarities and max(similarities) > .82):
+                duplicate_ids.update({left.id, right.id})
     return len(duplicate_ids)
 
 

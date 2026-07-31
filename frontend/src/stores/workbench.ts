@@ -7,7 +7,17 @@ export interface CommonGiftDraft extends Omit<CommonGiftPayload, "sourceUrls"> {
 export type ProductGiftDraft = CommonGiftDraft & { giftTypeCode: "product"; productDetails: ProductDetailsInput; activityDetails?: never; };
 export type ActivityGiftDraft = CommonGiftDraft & { giftTypeCode: "activity"; activityDetails: ActivityDetailsInput; productDetails?: never; };
 export type GiftDraft = ProductGiftDraft | ActivityGiftDraft;
-export interface WorkbenchState { giftId: string | null; draft: GiftDraft; saving: boolean; dirty: boolean; savedGift: GiftRead | null; }
+export interface WorkbenchState { giftId: string | null; draftId: string; draft: GiftDraft; saving: boolean; dirty: boolean; savedGift: GiftRead | null; }
+const ACTIVE_DRAFT_ID_KEY = "giftmind.workbench.activeDraftId";
+function createDraftId(): string {
+  const id = crypto.randomUUID();
+  localStorage.setItem(ACTIVE_DRAFT_ID_KEY, id);
+  return id;
+}
+function initialDraftId(): string {
+  const stored = localStorage.getItem(ACTIVE_DRAFT_ID_KEY);
+  return stored && /^[0-9a-f-]{36}$/i.test(stored) ? stored : createDraftId();
+}
 
 function createCommonDraft(): CommonGiftDraft {
   return {
@@ -82,11 +92,11 @@ export function validateGiftDraft(draft: GiftDraft): string[] {
 }
 
 export const useWorkbenchStore = defineStore("workbench", {
-  state: (): WorkbenchState => ({ giftId: null, draft: createProductDraft(), saving: false, dirty: false, savedGift: null }),
+  state: (): WorkbenchState => ({ giftId: null, draftId: initialDraftId(), draft: createProductDraft(), saving: false, dirty: false, savedGift: null }),
   actions: {
-    startNew() { this.giftId = null; this.draft = createProductDraft(); this.savedGift = null; this.dirty = false; },
+    startNew() { this.giftId = null; this.draftId = createDraftId(); this.draft = createProductDraft(); this.savedGift = null; this.dirty = false; },
     replaceDraft(draft: GiftDraft) { this.draft = draft; this.dirty = true; }, markDirty() { this.dirty = true; },
-    async load(giftId: string) { this.saving = true; try { const gift = await getGift(giftId); this.giftId = gift.id; this.savedGift = gift; this.draft = fromGiftRead(gift); this.dirty = false; } finally { this.saving = false; } },
+    async load(giftId: string) { this.saving = true; try { const gift = await getGift(giftId); this.giftId = gift.id; this.draftId = gift.id; this.savedGift = gift; this.draft = fromGiftRead(gift); this.dirty = false; } finally { this.saving = false; } },
     async saveDraft(): Promise<GiftRead> { this.saving = true; try { const saved = this.giftId ? await updateGift(this.giftId, toGiftPayload(this.draft)) : await createGift(toGiftPayload(this.draft)); this.giftId = saved.id; this.savedGift = saved; this.dirty = false; return saved; } finally { this.saving = false; } },
     async saveAndContinue(): Promise<GiftRead> { return this.saveDraft(); }, async saveAndCreateNext(): Promise<void> { await this.saveDraft(); this.startNew(); },
   },

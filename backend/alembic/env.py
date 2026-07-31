@@ -7,6 +7,9 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.app.models import (  # noqa: F401 - importing registers all metadata tables.
     AIRun,
+    AIMessage,
+    AISuggestionRun,
+    AIThread,
     ActivityDetail,
     ActivityOffer,
     AuditEvent,

@@ -68,3 +68,33 @@ async def find_duplicates(
                 )
             )
     return sorted(matches, key=lambda match: (not match.exact, -match.similarity, match.canonical_name))
+
+
+async def scan_duplicate_pairs(session: AsyncSession) -> list[dict[str, object]]:
+    """Compare the full active library and return exact or near-duplicate pairs."""
+    gifts = (await session.scalars(select(Gift).where(Gift.deleted_at.is_(None)))).all()
+    pairs: list[dict[str, object]] = []
+    for left_index, left in enumerate(gifts):
+        left_names = [left.canonical_name, *left.aliases]
+        for right in gifts[left_index + 1:]:
+            right_names = [right.canonical_name, *right.aliases]
+            similarity = max(
+                trigram_similarity(left_name, right_name)
+                for left_name in left_names
+                for right_name in right_names
+            )
+            exact = any(
+                normalize_name(left_name) == normalize_name(right_name)
+                for left_name in left_names
+                for right_name in right_names
+            )
+            if exact or similarity > _WARNING_THRESHOLD:
+                pairs.append(
+                    {
+                        "left": {"id": left.id, "canonical_name": left.canonical_name},
+                        "right": {"id": right.id, "canonical_name": right.canonical_name},
+                        "similarity": round(similarity, 4),
+                        "exact": exact,
+                    }
+                )
+    return sorted(pairs, key=lambda pair: (-float(pair["similarity"]), str(pair["left"])))

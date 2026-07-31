@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,12 @@ class Settings(BaseSettings):
     app_base_path: str = "/"
     schema_version: int = 1
     deepseek_api_key: str | None = None
+    vision_api_key: str | None = None
+    vision_base_url: str | None = None
+    vision_model: str | None = None
+    playwright_enabled: bool = True
+    playwright_timeout_ms: int = Field(default=20_000, ge=5_000, le=60_000)
+    taobao_state_path: Path = Path("./data/private/taobao-state.json")
 
     @field_validator("app_secret", "team_passcode")
     @classmethod
