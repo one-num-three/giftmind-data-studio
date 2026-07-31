@@ -12,7 +12,7 @@
       <div v-if="!messages.length" class="ai-empty">
         <span>✦</span>
         <strong>把资料交给我，我来预填</strong>
-        <p>可发送商品名、链接、描述或图片。我会给出类型、价格、匹配对象、送礼理由和细节建议，人工审核后再写入。</p>
+        <p>可发送商品名、链接、描述或图片。我会给出类型、价格、匹配对象、送礼理由和细节建议，人工审核后再写入。淘宝/天猫链接会由服务器浏览器读取文字信息，不需要发送账号密码。</p>
       </div>
       <article v-for="message in messages" :key="message.id" :class="['message', `message--${message.role}`]">
         <p>{{ message.content }}</p>

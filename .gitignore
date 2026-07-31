@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .env
 data/
+data/private/
 uploads/
 backups/
 frontend/node_modules/

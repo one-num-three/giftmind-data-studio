@@ -165,7 +165,13 @@ async def analyze_batch_links(
     items: list[dict[str, object]] = []
     async with httpx.AsyncClient() as client:
         for url in normalized_urls:
-            source = await extract_public_page(url, client)
+            source = await extract_public_page(
+                url,
+                client,
+                playwright_enabled=request.app.state.settings.playwright_enabled,
+                playwright_timeout_ms=request.app.state.settings.playwright_timeout_ms,
+                taobao_state_path=request.app.state.settings.taobao_state_path,
+            )
             result = await generate_assistant_result(
                 content=url,
                 gift_type_code=gift_type_code,
@@ -273,7 +279,15 @@ async def send_message(
     if urls:
         async with httpx.AsyncClient() as client:
             for url in urls:
-                source_refs.append(await extract_public_page(url, client))
+                source_refs.append(
+                    await extract_public_page(
+                        url,
+                        client,
+                        playwright_enabled=request.app.state.settings.playwright_enabled,
+                        playwright_timeout_ms=request.app.state.settings.playwright_timeout_ms,
+                        taobao_state_path=request.app.state.settings.taobao_state_path,
+                    )
+                )
     if image_inputs:
         source_refs.extend(await understand_images(image_inputs, request.app.state.settings))
     if not source_refs:

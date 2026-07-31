@@ -10,6 +10,22 @@ vi.mock("../../api/client", () => ({ apiRequest }));
 vi.mock("vue-router", () => ({ useRouter: () => ({ push }) }));
 
 describe("tools view DeepSeek settings", () => {
+  it("shows server-side Taobao login controls without exposing cookies", async () => {
+    apiRequest.mockImplementation((path: string) => {
+      if (path === "/api/custom-fields") return Promise.resolve([]);
+      if (path === "/api/settings/deepseek") return Promise.resolve({ configured: false, model: "deepseek-v4-flash" });
+      return Promise.resolve({});
+    });
+
+    const wrapper = mount(ToolsView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("淘宝登录（可选）");
+    expect(wrapper.text()).toContain("登录状态只保存在服务器");
+    expect(wrapper.find("[data-taobao-start]").exists()).toBe(true);
+    expect(wrapper.text()).not.toContain("Cookie 内容");
+  });
+
   it("shows configuration status and saves the key without keeping it in the input", async () => {
     apiRequest.mockImplementation((path: string) => {
       if (path === "/api/custom-fields") return Promise.resolve([]);

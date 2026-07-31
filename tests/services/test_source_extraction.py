@@ -4,6 +4,7 @@ from backend.app.services.source_extraction import (
     extract_public_page,
     extract_urls,
     is_public_http_url,
+    is_taobao_product_url,
 )
 
 
@@ -38,6 +39,50 @@ def test_public_url_validation_rejects_local_and_non_http_destinations():
     assert is_public_http_url("http://localhost/admin", resolver=public_resolver) is False
     assert is_public_http_url("http://example.com", resolver=private_resolver) is False
     assert is_public_http_url("https://example.com/item", resolver=public_resolver) is True
+
+
+def test_taobao_product_urls_are_selected_for_browser_extraction():
+    assert is_taobao_product_url("https://item.taobao.com/item.htm?id=123") is True
+    assert is_taobao_product_url("https://detail.tmall.com/item.htm?id=123") is True
+    assert is_taobao_product_url("https://www.taobao.com/") is False
+    assert is_taobao_product_url("https://example.com/item.htm?id=123") is False
+
+
+def test_taobao_page_uses_text_only_playwright_adapter(monkeypatch):
+    async def fake_browser_extract(url, *, resolver, timeout_ms):
+        assert url == "https://item.taobao.com/item.htm?id=123"
+        assert resolver is public_resolver
+        assert timeout_ms == 12_000
+        return {
+            "url": url,
+            "label": "测试礼物",
+            "status": "ok",
+            "title": "测试礼物",
+            "description": "文字描述",
+            "text": "售价 69 元",
+            "structuredData": [],
+            "priceHints": ["69"],
+            "extractionMode": "playwright-text-only",
+        }
+
+    import backend.app.services.source_extraction as extraction
+
+    monkeypatch.setattr(extraction, "_extract_taobao_page", fake_browser_extract)
+
+    async def exercise():
+        async with httpx.AsyncClient() as client:
+            return await extract_public_page(
+                "https://item.taobao.com/item.htm?id=123",
+                client,
+                resolver=public_resolver,
+                playwright_timeout_ms=12_000,
+            )
+
+    import asyncio
+
+    result = asyncio.run(exercise())
+    assert result["status"] == "ok"
+    assert result["extractionMode"] == "playwright-text-only"
 
 
 def test_extract_public_page_returns_title_description_text_price_and_json_ld():
