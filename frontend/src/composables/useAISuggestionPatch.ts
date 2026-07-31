@@ -5,7 +5,7 @@ import type { FieldPatch } from "../api/assistant";
 import type { GiftDraft } from "../stores/workbench";
 
 const ALLOWED_PATHS = new Set([
-  "canonicalName", "giftTypeCode", "shortDescription", "priceMin", "priceMax", "isFree", "whyTemplate",
+  "canonicalName", "giftTypeCode", "shortDescription", "priceMin", "priceMax", "isFree", "whyTemplate", "purchaseOrBookingTip", "ritualTip", "pairingIdeas",
   "recipientTypes", "occasions", "interests", "tags",
   "productDetails.genericProductName", "productDetails.materials",
   "productDetails.colors", "productDetails.sizes", "productDetails.variantNotes", "productDetails.sizeClass",

@@ -191,3 +191,34 @@ async def test_fallback_preserves_a_written_price_range():
     values = {patch["path"]: patch["value"] for patch in result["patches"]}
     assert values["priceMin"] == 50
     assert values["priceMax"] == 100
+
+
+@pytest.mark.asyncio
+async def test_clear_activity_words_override_product_default():
+    result = await generate_assistant_result(
+        content="和她一起露营看星星",
+        gift_type_code="product",
+        current_values={},
+        history=[],
+        source_refs=[{"label": "用户描述", "status": "ok"}],
+        api_key=None,
+    )
+
+    values = {patch["path"]: patch["value"] for patch in result["patches"]}
+    assert values["giftTypeCode"] == "activity"
+    assert not any(path.startswith("productDetails.") for path in values)
+
+
+@pytest.mark.asyncio
+async def test_experience_without_shared_participation_stays_goods():
+    result = await generate_assistant_result(
+        content="送一张单人SPA体验券给她",
+        gift_type_code="activity",
+        current_values={},
+        history=[],
+        source_refs=[{"label": "用户描述", "status": "ok"}],
+        api_key=None,
+    )
+
+    values = {patch["path"]: patch["value"] for patch in result["patches"]}
+    assert values["giftTypeCode"] == "product"

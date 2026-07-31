@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from copy import deepcopy
 import json
 import re
+from collections.abc import Mapping
+from copy import deepcopy
 
 import httpx
 
+from backend.app.services.gift_type_inference import GiftTypeDecision, infer_gift_type
 
 FIELD_DEFINITIONS: dict[str, tuple[str, str]] = {
     "canonicalName": ("标准名称", "text"),
@@ -18,6 +19,9 @@ FIELD_DEFINITIONS: dict[str, tuple[str, str]] = {
     "priceMax": ("最高价格", "number"),
     "isFree": ("免费", "boolean"),
     "whyTemplate": ("送礼理由", "text"),
+    "purchaseOrBookingTip": ("购买/预约提示", "text"),
+    "ritualTip": ("铺垫与仪式提示", "text"),
+    "pairingIdeas": ("贺卡/邀请文案方向", "text"),
     "recipientTypes": ("适合对象", "list"),
     "occasions": ("适合场景", "list"),
     "interests": ("兴趣标签", "list"),
@@ -243,6 +247,22 @@ def _fallback_raw(
         "fieldEvidence": {},
     }
     if gift_type_code == "product":
+        raw.update(
+            {
+                "purchaseOrBookingTip": "确认配送、兑换和到货时间，尽量保留收到礼物时的惊喜感。",
+                "ritualTip": "可以先从对方近期的需要或兴趣自然铺垫，交付时再说明这是专门为他准备的。",
+                "pairingIdeas": "可配一张手写贺卡，写下具体的喜欢与祝福；也可以在快递备注中留一句简短寄语。",
+            }
+        )
+    else:
+        raw.update(
+            {
+                "purchaseOrBookingTip": "先确认活动档期、地点、预约规则和取消政策，再把选择权留给对方。",
+                "ritualTip": "先表达想和对方一起创造一段回忆，再用轻松语气发出邀请，明确时间可以一起调整。",
+                "pairingIdeas": "可写一张活动邀请函或承诺券，例如“这次想把时间留给我们，你方便时我们一起去”。",
+            }
+        )
+    if gift_type_code == "product":
         details, inferred = _infer_product_details(analysis_text)
         raw["productDetails"] = details
         match = _infer_matching_fields(analysis_text, display_name)
@@ -381,7 +401,7 @@ def _fallback_questions(text: str, gift_type_code: str, price_min: float | None)
     return questions[:3]
 
 
-def _assistant_prompt(gift_type_code: str) -> str:
+def _assistant_prompt(gift_type_code: str, type_decision: GiftTypeDecision | None = None) -> str:
     type_specific = (
         "productDetails: { productForm, genericProductName, materials[], colors[], sizes[], "
         "variantNotes, sizeClass, packageDimensions, personalizationMethods[], "
@@ -393,7 +413,18 @@ def _assistant_prompt(gift_type_code: str) -> str:
         "pricingUnit, bookingRequired, bookingLeadDaysMin, bookingLeadDaysMax, "
         "validityDays, includedItems[], excludedItems[], indoorOutdoor }"
     )
-    return f"""You help a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The selected type is {gift_type_code}. Analyze the latest message, conversation, source extracts, and current form values. Use natural Simplified Chinese. shortDescription should be a useful 25-60 character summary. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '. Cover different angles such as the gift's concrete features, the recipient's likely preferences, a suitable occasion, the emotional or practical value, and a useful usage or pairing suggestion; do not repeat the same reason. Each point should be a complete, specific sentence of about 15-40 Chinese characters. Never output template placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}; use natural words such as 收礼人 or 朋友聚会 instead. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
+    type_reason = type_decision.reason if type_decision else "按当前选择的类型处理。"
+    return f"""You are a professional AI gift advisor helping a Chinese gift-data collection team. Return one valid JSON object only, without Markdown or extra commentary. The hard expected type is {gift_type_code}. The deterministic type decision is: {type_reason}.
+
+The only boundary between Goods and Activity is whether the gift giver participates together with the recipient. Goods means the giver does not need to show up and, after delivery, the recipient owns or uses it alone. Goods includes physical products, single-person experiences or services such as a solo spa voucher, individual diving lesson, personal gym card, or electronic redemption code. For Goods, advise on creating an unboxing or receiving surprise and produce a custom-card or delivery-message direction. Activity means the giver must participate with the recipient, in a two-person or group experience such as shared camping, pottery, a concert, a meal, or an escape room. For Activity, advise on a friendly invitation, schedule coordination, avoiding social pressure, and an invitation letter or promise-coupon direction.
+
+Never classify an experience as Activity merely because it is an experience: first look for shared participation such as 一起、共同、双人、多人、陪你、和朋友、我们、相约 or 邀请. If the recipient is explicitly alone, or the giver is only sending a voucher or item, use Goods. If participation is not stated, do not invent that the giver will attend; keep the selected type and clearly ask the collector to confirm it.
+
+Use the guidance fields according to the type: for Goods, purchaseOrBookingTip should cover delivery, timing, unboxing, or redemption; ritualTip should explain a natural surprise setup; pairingIdeas should include 2-3 short card or delivery-message directions. For Activity, purchaseOrBookingTip should cover booking and coordinating dates; ritualTip should explain how to invite without pressure; pairingIdeas should include 2-3 invitation-letter, promise-coupon, or opening-script directions. Do not fill activity-only guidance for Goods or goods-only guidance for Activity.
+
+Type is a hard constraint. recommendedGiftTypeCode MUST be exactly {gift_type_code}; never return the opposite type because of a stale or default UI selection. If the input describes a shared activity with the giver participating (for example 一起露营、双人观星、共同体验课程、一起看演出), use activity and fill activityDetails. If the experience is for the recipient alone, use product. If participation is not stated, keep the hard expected type and ask for confirmation rather than inventing a shared plan. If the input describes an item people buy, own, consume, ship, or use (for example 礼盒、冰箱贴、书签、镜头、帐篷、底料、茶叶), use product and fill productDetails. Activity and product details are mutually exclusive: do not put booking, duration, participants, or service regions into productDetails; do not put materials, shipping, sizes, or generic product names into activityDetails.
+
+Analyze the latest message, conversation, source extracts, and current form values. Use natural Simplified Chinese. shortDescription should be a useful 25-60 character summary. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '. Cover different angles such as the gift's concrete features, the recipient's likely preferences, a suitable occasion, the emotional or practical value, and a useful usage or pairing suggestion; do not repeat the same reason. Each point should be a complete, specific sentence of about 15-40 Chinese characters. Never output template placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}; use natural words such as 收礼人 or 朋友聚会 instead. Never invent a merchant, exact URL, address, or unsupported fact. Do not copy instructions into canonicalName. Price is an estimated CNY range and must be null when the source does not support it. Fill applicable fields and use null or [] when unknown.
 
 Return: canonicalName, recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), followUpQuestions[] with at most 3 important missing facts, and {type_specific}."""
 
@@ -488,6 +519,25 @@ def _clean_suggestion_text(value: object, *, format_reasons: bool = False) -> ob
     return _format_reason_points(cleaned) if format_reasons else cleaned
 
 
+def _enforce_type_contract(
+    raw: Mapping[str, object],
+    type_decision: GiftTypeDecision,
+) -> dict[str, object]:
+    """Make the selected type and its detail section mutually exclusive."""
+    normalized = deepcopy(dict(raw))
+    normalized["recommendedGiftTypeCode"] = type_decision.code
+    normalized["typeReason"] = type_decision.reason
+    if type_decision.code == "product":
+        normalized["activityDetails"] = {}
+        if not isinstance(normalized.get("productDetails"), Mapping):
+            normalized["productDetails"] = {}
+    else:
+        normalized["productDetails"] = {}
+        if not isinstance(normalized.get("activityDetails"), Mapping):
+            normalized["activityDetails"] = {}
+    return normalized
+
+
 def _format_reason_points(text: str) -> str:
     lines = [line.strip() for line in re.split(r"\r?\n+", text) if line.strip()]
     if len(lines) == 1:
@@ -507,7 +557,15 @@ async def generate_assistant_result(
     source_refs: list[dict[str, object]],
     api_key: str | None,
 ) -> dict[str, object]:
-    raw = _fallback_raw(content, gift_type_code, source_refs)
+    evidence_parts = [content, str(current_values.get("canonicalName") or ""), str(current_values.get("shortDescription") or "")]
+    for source in source_refs:
+        evidence_parts.extend(
+            str(source.get(key) or "")[:2000]
+            for key in ("title", "description", "text")
+        )
+    type_decision = infer_gift_type("\n".join(evidence_parts), gift_type_code)
+    effective_type = type_decision.code
+    raw = _fallback_raw(content, effective_type, source_refs)
     source = "rule"
     if api_key:
         context_sources = [
@@ -541,7 +599,7 @@ async def generate_assistant_result(
                         "thinking": {"type": "disabled"},
                         "temperature": 0.1,
                         "messages": [
-                            {"role": "system", "content": _assistant_prompt(gift_type_code)},
+                            {"role": "system", "content": _assistant_prompt(effective_type, type_decision)},
                             {
                                 "role": "user",
                                 "content": latest_payload,
@@ -555,6 +613,7 @@ async def generate_assistant_result(
                 source = "deepseek"
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             source = "rule"
+    raw = _enforce_type_contract(raw, type_decision)
     patches = suggestion_to_patches(raw, source_refs)
     model_questions = raw.get("followUpQuestions")
     questions = (
@@ -562,7 +621,10 @@ async def generate_assistant_result(
         if isinstance(model_questions, list)
         else []
     )
-    for question in _missing_information_questions(current_values, gift_type_code, raw):
+    if type_decision.activity_clues and not type_decision.shared_participation_clues and not type_decision.single_recipient_clues and not type_decision.product_clues:
+        questions.insert(0, "送礼人会和收礼人一起参加吗？如果会，请明确写出“一起、双人或共同参加”；否则按商品处理。")
+        questions = questions[:3]
+    for question in _missing_information_questions(current_values, effective_type, raw):
         if len(questions) >= 3:
             break
         if question not in questions:

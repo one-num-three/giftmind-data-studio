@@ -115,6 +115,59 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
     assert captured_request["client"]["timeout"] == tools_route.DEEPSEEK_TIMEOUT_SECONDS
 
 
+def test_deepseek_suggest_enforces_activity_type_for_obvious_activity(tmp_path, monkeypatch):
+    captured_request = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"recommendedGiftTypeCode":"product","productDetails":{"materials":["塑料"]},"shortDescription":"一件露营用品"}'
+                        }
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured_request["client"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, *_args, **kwargs):
+            captured_request.update(kwargs)
+            return FakeResponse()
+
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-activity-guard")
+    monkeypatch.setattr(tools_route.httpx, "AsyncClient", lambda **kwargs: FakeClient(**kwargs))
+    tools_route.get_settings.cache_clear()
+    try:
+        with create_tools_client(tmp_path) as client:
+            assert client.post("/api/session/login", json={"passcode": "team-secret"}).status_code == 200
+            response = client.post(
+                "/api/ai/suggest",
+                json={"canonicalName": "和朋友一起露营看星星", "giftTypeCode": "product"},
+            )
+    finally:
+        tools_route.get_settings.cache_clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recommendedGiftTypeCode"] == "activity"
+    assert payload["productDetails"] == {}
+    assert "共同参与" in payload["typeReason"]
+    assert "MUST be exactly activity" in captured_request["json"]["messages"][0]["content"]
+
+
 def test_taobao_login_panel_keeps_browser_state_server_side(tmp_path):
     class FakeTaobaoLogin:
         async def start(self):
