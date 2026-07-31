@@ -115,7 +115,7 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
             return None
 
         def json(self):
-            return {"choices": [{"message": {"content": '{"shortDescription":"图中礼物"}'}}]}
+            return {"choices": [{"message": {"content": '{"shortDescription":"图中礼物","whyTemplate":"因为{recipient}喜欢云南风味或火锅，野生菌底料带来地道山珍体验，适合在{occasion}时共享。"}'}}]}
 
     class Client:
         async def __aenter__(self):
@@ -146,6 +146,9 @@ async def test_deepseek_v4_flash_receives_extracted_image_text_not_image_content
     assert "image_url" not in latest
     assert result["source"] == "deepseek"
     assert any(item["path"] == "productDetails.genericProductName" for item in result["patches"])
+    why_patch = next(item for item in result["patches"] if item["path"] == "whyTemplate")
+    assert "{" not in why_patch["value"]
+    assert "收礼人" in why_patch["value"]
 
 
 @pytest.mark.asyncio
