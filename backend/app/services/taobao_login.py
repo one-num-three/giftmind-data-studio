@@ -139,6 +139,13 @@ class TaobaoLoginManager:
         if self.state_path.exists():
             self.state_path.unlink()
 
+    def health(self) -> dict[str, object]:
+        return {
+            "browserAvailable": async_playwright is not None,
+            "sessionActive": self._session is not None,
+            "stateSaved": self.state_path.is_file(),
+        }
+
     async def close(self) -> None:
         if self._session is not None:
             try:

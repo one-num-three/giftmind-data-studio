@@ -17,6 +17,7 @@ def create_assistant_client(tmp_path) -> TestClient:
         app_secret="test-app-secret",
         team_passcode="team-secret",
         database_url=f"sqlite+aiosqlite:///{(tmp_path / 'assistant-api.sqlite3').as_posix()}",
+        deepseek_api_key=None,
     )
 
     async def initialize() -> None:
@@ -89,6 +90,34 @@ def test_thread_creation_is_idempotent_and_drafts_are_isolated(tmp_path):
     assert first_message.json()["suggestionRun"]["source"] == "rule"
 
 
+def test_thread_can_start_blank_chat_and_delete_history(tmp_path):
+    with create_assistant_client(tmp_path) as client:
+        login(client)
+        thread = client.post(
+            "/api/ai/threads",
+            json={"draftId": "12121212-1212-4121-8121-121212121212"},
+        ).json()
+        thread_id = thread["id"]
+        client.post(
+            f"/api/ai/threads/{thread_id}/messages",
+            json={"content": "黄铜书签", "giftTypeCode": "product", "currentValues": {}},
+        )
+
+        reset = client.post(f"/api/ai/threads/{thread_id}/reset")
+        assert reset.status_code == 200
+        assert reset.json()["messages"] == []
+        assert reset.json()["suggestionRuns"] == []
+
+        client.post(
+            f"/api/ai/threads/{thread_id}/messages",
+            json={"content": "陶艺体验", "giftTypeCode": "activity", "currentValues": {}},
+        )
+        deleted = client.delete(f"/api/ai/threads/{thread_id}/history")
+        assert deleted.status_code == 200
+        assert deleted.json()["deletedMessages"] == 2
+        assert deleted.json()["deletedRuns"] == 1
+
+
 def test_message_extracts_link_without_failing_when_the_page_is_unavailable(tmp_path, monkeypatch):
     extracted = AsyncMock(
         return_value={
@@ -132,7 +161,7 @@ def test_review_state_and_gift_binding_are_persisted(tmp_path):
         ).json()
         turn = client.post(
             f"/api/ai/threads/{thread['id']}/messages",
-            json={"content": "黄铜书签", "giftTypeCode": "product", "currentValues": {}},
+            json={"content": "东南大学校徽黄铜书签", "giftTypeCode": "product", "currentValues": {}},
         ).json()
         run_id = turn["suggestionRun"]["id"]
         review = client.patch(

@@ -26,7 +26,7 @@ TRAILING_PUNCTUATION = ".,!?;:，。！？；：、)]}）】》"
 MAX_URLS = 3
 MAX_BYTES = 1024 * 1024
 MAX_RENDERED_TEXT = 12000
-TAOBAO_HOST_SUFFIXES = ("taobao.com", "tmall.com", "tmall.hk")
+TAOBAO_HOST_SUFFIXES = ("taobao.com", "tmall.com", "tmall.hk", "tb.cn")
 Resolver = Callable[..., list]
 
 
@@ -62,14 +62,27 @@ def is_public_http_url(url: str, resolver: Resolver = socket.getaddrinfo) -> boo
         return False
 
 
+def is_taobao_host(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in TAOBAO_HOST_SUFFIXES)
+    except ValueError:
+        return False
+
+
 def is_taobao_product_url(url: str) -> bool:
     """Return whether a URL looks like a public Taobao/Tmall product page."""
 
     try:
         parsed = urlparse(url)
         hostname = (parsed.hostname or "").lower().rstrip(".")
-        if not any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in TAOBAO_HOST_SUFFIXES):
+        if not is_taobao_host(url):
             return False
+        # Taobao share links use hosts such as e.tb.cn and s.tb.cn and do not
+        # contain the final /item.htm path until the browser follows redirect.
+        if hostname == "tb.cn" or hostname.endswith(".tb.cn"):
+            return True
         return (
             hostname.startswith("item.")
             or hostname.startswith("detail.")
@@ -252,7 +265,11 @@ async def _extract_taobao_page(
             await page.wait_for_timeout(800)
 
             resolved_url = page.url
-            if not is_public_http_url(resolved_url, resolver=resolver):
+            # The initial URL is restricted to official Taobao hosts. Keep
+            # official Taobao redirects usable even when a server-side DNS
+            # environment reports a non-global test address; non-Taobao
+            # redirects still go through the SSRF guard.
+            if not is_public_http_url(resolved_url, resolver=resolver) and not is_taobao_host(resolved_url):
                 return {
                     "url": url,
                     "resolvedUrl": resolved_url,
@@ -293,12 +310,23 @@ async def _extract_taobao_page(
             structured = structured[:10]
             structured_text = json.dumps(structured, ensure_ascii=False)
             challenge_text = f"{title} {body_text}".lower()
-            if any(marker in challenge_text for marker in ("请完成验证", "滑动验证", "安全验证", "访问受限")):
+            resolved_host = (urlparse(resolved_url).hostname or "").lower().rstrip(".")
+            login_page = resolved_host in {"login.taobao.com", "passport.taobao.com", "login.tmall.com"} or title.strip() in {"登录", "淘宝登录"}
+            if login_page or any(marker in challenge_text for marker in ("请先登录", "登录后查看", "登录淘宝", "立即登录")):
+                page_status = "login_required"
+                error = "淘宝页面要求登录，请在数据工具中打开淘宝登录，完成一次登录并保存服务器状态后，再重新解析。"
+            elif any(marker in challenge_text for marker in ("请完成验证", "滑动验证", "安全验证", "访问受限", "人机验证", "captcha", "verify")):
                 page_status = "challenge"
+                error = "淘宝要求人工完成验证，请在服务器浏览器中完成验证后保存登录状态，再重新解析。"
             elif status_code >= 400:
                 page_status = "error"
+                error = f"淘宝页面返回 HTTP {status_code}。"
+            elif not any((title, description, body_text, structured)):
+                page_status = "login_required"
+                error = "没有抓到淘宝商品文字，通常是短链未展开、需要登录或遇到人工验证。请先保存淘宝登录状态后重试。"
             else:
                 page_status = "ok"
+                error = None
             return {
                 "url": url,
                 "resolvedUrl": resolved_url,
@@ -310,6 +338,7 @@ async def _extract_taobao_page(
                 "structuredData": structured,
                 "priceHints": _price_hints(body_text, description, structured_text),
                 "extractionMode": "playwright-text-only",
+                **({"error": error} if error else {}),
             }
     except PlaywrightTimeoutError:
         return {"url": url, "label": url, "status": "timeout", "error": "页面加载超时"}

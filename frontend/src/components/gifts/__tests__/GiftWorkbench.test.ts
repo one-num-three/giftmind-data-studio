@@ -97,6 +97,37 @@ describe("GiftWorkbenchView", () => {
     expect(apiRequest).not.toHaveBeenCalled();
   });
 
+  it("normalizes decimal strings loaded from the API and clears a stale save error after retry", async () => {
+    let updateAttempts = 0;
+    apiRequest.mockImplementation((path: string, options?: { method?: string }) => {
+      if (path === "/api/gifts/gift-1" && !options?.method) {
+        return Promise.resolve({
+          id: "gift-1", giftTypeCode: "product", canonicalName: "东南大学校徽冰箱贴", aliases: [], shortDescription: "校徽纪念品",
+          recipientTypes: [], relationshipStages: [], ageRanges: [], traits: [], interests: [], occasions: [], desiredFeelings: [], memoryHooks: [], tags: [], customTags: [],
+          priceMin: "15.00", priceMax: "40.00", isFree: false, currency: "CNY", leadDaysMin: null, leadDaysMax: null, rushAvailable: false,
+          tabooFlags: [], allergyNotes: null, safetyNotes: null, unsuitableGroups: [], whyTemplate: "纪念校园时光", sourceUrls: [], sourceNotes: null,
+          isCustomizable: false, isBundle: false, bundleComponents: [], status: "draft", createdAt: "2026-07-31T09:14:07.629869", updatedAt: "2026-07-31T09:14:07.643186", deletedAt: null, productDetails: { productForm: "physical", materials: [], shippingRequired: false },
+        });
+      }
+      if (path === "/api/gifts/gift-1" && options?.method === "PUT") {
+        updateAttempts += 1;
+        return updateAttempts === 1 ? Promise.reject(new ApiError("请求未能完成。", 503)) : Promise.resolve({ id: "gift-1", giftTypeCode: "product" });
+      }
+      return Promise.resolve({});
+    });
+    const wrapper = mountWorkbench("gift-1");
+    await flushPromises();
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(wrapper.get('[data-save-errors]').text()).toContain("保存失败：请求未能完成");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(updateAttempts).toBe(2);
+    expect(wrapper.find('[data-save-errors]').exists()).toBe(false);
+  });
+
   it("requires a delivery method for digital products before saving", async () => {
     const wrapper = mountWorkbench();
     await wrapper.get('[data-field="canonical-name"]').setValue("电子礼品卡");

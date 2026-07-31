@@ -9,6 +9,9 @@
       <label :class="{ 'ai-highlight': highlighted('priceMax') }">最高价格<input data-field="price-max" v-model.number="modelValue.priceMax" type="number" min="0" /></label>
     </div>
     <label :class="{ 'ai-highlight': highlighted('whyTemplate') }">送礼理由<textarea data-field="why-template" v-model="modelValue.whyTemplate" rows="3" /></label>
+    <label :class="{ 'ai-highlight': highlighted('ritualTip') }">铺垫与开口提示<textarea data-field="ritual-tip" v-model="modelValue.ritualTip" rows="3" placeholder="如何自然铺垫、开口，避免让对方有压力" /></label>
+    <label :class="{ 'ai-highlight': highlighted('purchaseOrBookingTip') }">购买 / 预约提示<textarea data-field="purchase-booking-tip" v-model="modelValue.purchaseOrBookingTip" rows="3" placeholder="商品填写配送/兑换；活动填写预约与档期确认" /></label>
+    <label :class="{ 'ai-highlight': highlighted('pairingIdeas') }">贺卡 / 邀请文案方向<textarea data-field="pairing-ideas" v-model="modelValue.pairingIdeas" rows="3" placeholder="给出贺卡、快递寄语或活动邀请的写法" /></label>
   </section>
 
   <section class="section" data-section="matching" aria-labelledby="matching-title">
@@ -68,7 +71,7 @@ async function runAI() {
   try {
     const result = await suggestGift(modelValue.value.canonicalName, props.giftTypeCode, modelValue.value as unknown as Record<string, unknown>);
     aiSuggestion.value = result; applyCommonSuggestion(result); emit("suggestion", result);
-    const typeNotice = result.recommendedGiftTypeCode !== props.giftTypeCode ? `模型建议类型为${result.recommendedGiftTypeCode === "activity" ? "活动" : "商品"}，当前未自动切换。` : "";
+    const typeNotice = result.recommendedGiftTypeCode !== props.giftTypeCode ? `模型建议类型为${result.recommendedGiftTypeCode === "activity" ? "活动" : "商品"}，请确认是否切换。` : "";
     aiNotice.value = `${result.source === "deepseek" ? "DeepSeek 完整建议已填入，请人工确认。" : "当前使用规则兜底建议，请人工确认。"}${typeNotice}`;
   } catch { aiNotice.value = "AI 暂时不可用，请继续手动选择。"; } finally { aiBusy.value = false; }
 }

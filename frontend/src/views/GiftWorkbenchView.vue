@@ -5,7 +5,7 @@
     <section v-if="batchNotice" class="feedback" aria-live="polite"><strong>批量链接建议已载入</strong><span>{{ batchNotice }}</span></section>
     <div class="workbench__grid">
       <WorkbenchProgress class="workbench__progress" :sections="sections" current="Basic" />
-      <form class="workbench__form" @input="store.markDirty" @submit.prevent="saveAndContinue">
+      <form ref="formRef" class="workbench__form" @input="handleFormInput" @submit.prevent="saveAndContinue">
         <section v-if="saveErrors.length" data-save-errors class="feedback feedback--error" role="alert"><strong>请先修正以下问题：</strong><ul><li v-for="error in saveErrors" :key="error">{{ error }}</li></ul></section>
         <section v-if="duplicateMatches.length" data-duplicate-feedback class="feedback" aria-live="polite"><strong>重复记录提示</strong><ul><li v-for="match in duplicateMatches" :key="`${match.canonical_name}-${match.similarity}`">{{ match.exact ? '完全重复' : '相近记录' }}：{{ match.canonical_name }}（相似度 {{ Math.round(match.similarity * 100) }}%）</li></ul></section>
         <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" :highlighted-fields="highlightedFields" @suggestion="applyAISuggestion" />
@@ -54,6 +54,7 @@ const draftEnabled = computed(() => !store.saving);
 const editingExisting = computed(() => Boolean(props.giftId || store.giftId));
 const { restoredDraft, restoreDraft, discardDraft, clearDraft } = useDraft(draftGiftId, draft, draftEnabled, toRef(store, "draftId"));
 const pendingType = ref<GiftTypeCode | null>(null);
+const formRef = ref<HTMLFormElement | null>(null);
 const imageManager = ref<{ uploadPending: (giftId: string) => Promise<void>; clearPending: () => void } | null>(null);
 const assistant = ref<{ bindGift: (giftId: string) => Promise<void> } | null>(null);
 const saveErrors = ref<string[]>([]);
@@ -109,6 +110,9 @@ function selectType(type: GiftTypeCode) {
 }
 function commonDraftValues() { const { giftTypeCode: _giftTypeCode, productDetails: _productDetails, activityDetails: _activityDetails, ...common } = draft.value; return common; }
 function applyAISuggestion(suggestion: GiftAISuggestion) {
+  if (!editingExisting.value && suggestion.recommendedGiftTypeCode !== draft.value.giftTypeCode && !hasPopulatedTypeSpecificValue()) {
+    applyType(suggestion.recommendedGiftTypeCode);
+  }
   if (draft.value.giftTypeCode === "product") {
     const current = draft.value.productDetails;
     const details = suggestion.productDetails;
@@ -171,23 +175,49 @@ function duplicateMatchesFrom(error: unknown): DuplicateMatch[] {
   const matches = (error.detail as { matches?: unknown }).matches;
   return Array.isArray(matches) ? matches as DuplicateMatch[] : [];
 }
+function validationTarget(error: string): string | null {
+  if (error.includes("标准名称")) return '[data-field="canonical-name"]';
+  if (error.includes("价格")) return '[data-field="price-min"]';
+  if (error.includes("组合礼物")) return '[data-section="bundle"]';
+  if (error.includes("数字交付方式")) return '[data-digital-delivery]';
+  if (error.includes("商品形态")) return '[data-product-form]';
+  if (error.includes("个性化方式")) return '[data-personalization-methods]';
+  if (error.includes("活动时长")) return '[data-activity-duration-min]';
+  if (error.includes("参与人数")) return '[data-activity-participants-min]';
+  if (error.includes("预约提前天数") || error.includes("线上活动")) return '[data-section="activity"]';
+  return null;
+}
+function focusValidationError() {
+  const selector = validationTarget(saveErrors.value[0] ?? "");
+  if (!selector) return;
+  const target = formRef.value?.querySelector<HTMLElement>(selector);
+  if (!target) return;
+  target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  target.focus({ preventScroll: true });
+}
+function handleFormInput() {
+  store.markDirty();
+  if (saveErrors.value.length) saveErrors.value = [];
+}
 async function validateBeforeSave(): Promise<boolean> {
   saveErrors.value = validateGiftDraft(draft.value);
   duplicateMatches.value = [];
-  if (saveErrors.value.length) return false;
+  if (saveErrors.value.length) { focusValidationError(); return false; }
   if (!editingExisting.value) {
     try { duplicateMatches.value = await findGiftDuplicates(draft.value.canonicalName.trim(), draft.value.aliases); }
     catch { /* a warning lookup must not make a valid save unavailable */ }
-    if (duplicateMatches.value.some((match) => match.exact)) { saveErrors.value = ["存在完全重复的礼物记录，请修改名称或别名后再保存。"]; return false; }
+    if (duplicateMatches.value.some((match) => match.exact)) { saveErrors.value = ["存在完全重复的礼物记录，请修改名称或别名后再保存。"]; focusValidationError(); return false; }
   }
   return true;
 }
 async function save(kind: "draft" | "continue" | "next") {
+  saveErrors.value = [];
   if (!await validateBeforeSave()) return;
   let giftSaved = false;
   try {
     const saved = await store.saveDraft();
     giftSaved = true;
+    saveErrors.value = [];
     await imageManager.value?.uploadPending(saved.id);
     await assistant.value?.bindGift(saved.id);
     if (kind === "next") {

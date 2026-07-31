@@ -26,13 +26,15 @@ from backend.app.models.custom_fields import CustomFieldDefinition, GiftCustomFi
 from backend.app.models.gift import Gift
 from backend.app.models.operations import BackupRecord
 from backend.app.schemas.common import APIModel
-from backend.app.services.gifts import GiftNotFoundError, _read_gift, create_gift, get_gift
 from backend.app.schemas.gift import GiftCreate
+from backend.app.services.gift_type_inference import GiftTypeDecision, infer_gift_type
+from backend.app.services.gifts import GiftNotFoundError, _read_gift, create_gift, get_gift
 
 router = APIRouter(prefix="/api", tags=["tools"])
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 ProtectedSession = Annotated[SessionContext, Depends(require_session)]
 DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_TIMEOUT_SECONDS = 45
 
 
 class CustomFieldInput(APIModel):
@@ -72,6 +74,21 @@ async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
     get_settings.cache_clear()
     settings = get_settings()
     return {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL}
+
+
+@router.get("/status")
+async def server_status(request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    get_settings.cache_clear()
+    settings = get_settings()
+    taobao = request.app.state.taobao_login.health()
+    return {
+        "backend": {"status": "ok", "schemaVersion": settings.schema_version},
+        "deepseek": {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL},
+        "taobao": {
+            "enabled": settings.playwright_enabled,
+            **taobao,
+        },
+    }
 
 
 @router.put("/settings/deepseek")
@@ -205,24 +222,44 @@ async def suggest_with_ai(payload: AIInput, session: DatabaseSession, _auth: Pro
     settings = get_settings()
     key = settings.deepseek_api_key
     selected_type = payload.gift_type_code if payload.gift_type_code in {"product", "activity"} else "product"
-    suggestion = _fallback_suggestion(payload.canonical_name, selected_type)
+    type_evidence = " ".join(
+        part
+        for part in (
+            payload.canonical_name,
+            str(payload.current_values.get("shortDescription") or ""),
+            str(payload.current_values.get("recipientTypes") or ""),
+            str(payload.current_values.get("relationshipStages") or ""),
+        )
+        if part
+    )
+    type_decision = infer_gift_type(type_evidence, selected_type)
+    expected_type = type_decision.code
+    suggestion = _fallback_suggestion(payload.canonical_name, expected_type, type_decision.reason)
     if key:
-        prompt = _suggestion_prompt(selected_type)
+        prompt = _suggestion_prompt(expected_type, type_decision)
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": DEEPSEEK_MODEL, "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
+            async with httpx.AsyncClient(timeout=DEEPSEEK_TIMEOUT_SECONDS) as client:
+                response = await client.post("https://api.deepseek.com/chat/completions", headers={"Authorization": f"Bearer {key}"}, json={"model": DEEPSEEK_MODEL, "thinking": {"type": "disabled"}, "temperature": 0.1, "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": json.dumps({"selectedType": selected_type, "expectedType": expected_type, "name": payload.canonical_name, "currentValues": payload.current_values}, ensure_ascii=False)}]})
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
-                suggestion = _normalize_ai_suggestion(_parse_json_object(content), suggestion, selected_type)
+                suggestion = _normalize_ai_suggestion(_parse_json_object(content), suggestion, expected_type, type_decision.reason)
         except (httpx.HTTPError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             pass
     return suggestion
 
 
-def _fallback_suggestion(canonical_name: str, selected_type: str) -> dict[str, object]:
+def _fallback_suggestion(canonical_name: str, selected_type: str, type_reason: str | None = None) -> dict[str, object]:
+    if selected_type == "product":
+        purchase_or_booking_tip = "确认配送、兑换和到货时间，尽量保留收到礼物时的惊喜感。"
+        ritual_tip = "可以先从对方近期的需要或兴趣自然铺垫，交付时再说明这是专门为他准备的。"
+        pairing_ideas = "可配一张手写贺卡，写下具体的喜欢与祝福；也可以在快递备注中留一句简短寄语。"
+    else:
+        purchase_or_booking_tip = "先确认活动档期、地点、预约规则和取消政策，再把选择权留给对方。"
+        ritual_tip = "先表达想和对方一起创造一段回忆，再用轻松语气发出邀请，明确时间可以一起调整。"
+        pairing_ideas = "可写一张活动邀请函或承诺券，例如“这次想把时间留给我们，你方便时我们一起去”。"
     return {
         "recommendedGiftTypeCode": selected_type,
-        "typeReason": "按当前选择的礼物类型生成建议，请人工确认。",
+        "typeReason": type_reason or "按当前选择的礼物类型生成建议，请人工确认。",
         "subcategoryCode": "other",
         "shortDescription": f"与{canonical_name}相关的礼物或体验。",
         "whyTemplate": f"可以考虑把{canonical_name}送给合适的对象，具体适配关系和价格请人工确认。",
@@ -241,9 +278,9 @@ def _fallback_suggestion(canonical_name: str, selected_type: str) -> dict[str, o
         "customTags": [],
         "bestScenarios": None,
         "unsuitableScenarios": None,
-        "purchaseOrBookingTip": None,
-        "ritualTip": None,
-        "pairingIdeas": None,
+        "purchaseOrBookingTip": purchase_or_booking_tip,
+        "ritualTip": ritual_tip,
+        "pairingIdeas": pairing_ideas,
         "confidence": 0.35,
         "source": "rule",
         "productDetails": {},
@@ -251,13 +288,24 @@ def _fallback_suggestion(canonical_name: str, selected_type: str) -> dict[str, o
     }
 
 
-def _suggestion_prompt(selected_type: str) -> str:
+def _suggestion_prompt(selected_type: str, type_decision: GiftTypeDecision | None = None) -> str:
     type_specific = (
         "productDetails: { productForm, genericProductName, materials[], colors[], sizes[], personalizationMethods[], shippingRequired, digitalDeliveryMethod, isConsumable, shelfLifeDays, storageRequirements, warrantyExpectation }"
         if selected_type == "product"
         else "activityDetails: { activityMode, activityCategory, serviceRegions[], durationMinutesMin, durationMinutesMax, participantsMin, participantsMax, pricingUnit, bookingRequired, validityDays, includedItems[], excludedItems[], ageRestrictions, indoorOutdoor, weatherDependency, cancellationExpectation, refundExpectation }"
     )
-    return f"""You are a careful assistant helping students build a Chinese gift database. Return one valid JSON object only, without Markdown fences or extra commentary. The selected type is {selected_type}; do not invent a merchant, URL, exact address, or unverifiable factual claim. Price is an estimated CNY range and may be null when uncertain. Use short Chinese values and only suggest facts that can reasonably be inferred from the name. Fill every applicable field, and use null or [] when unknown.
+    type_reason = type_decision.reason if type_decision else "按当前选择的类型处理。"
+    return f"""You are a professional AI gift advisor helping a Chinese gift-data collection team. Return one valid JSON object only, without Markdown fences or extra commentary. The hard expected type is {selected_type}. The type decision is: {type_reason}.
+
+The boundary between Goods and Activity has two hard requirements: the gift giver participates together with the recipient, and their relationship is intimate enough for that shared time to make sense. Goods means the giver does not need to show up and, after delivery, the recipient owns or uses it alone. Goods includes physical products, single-person experiences or services such as a solo spa voucher, individual diving lesson, personal gym card, or electronic redemption code. For Goods, advise on creating an unboxing or receiving surprise and produce a custom-card or delivery-message direction. Activity means the giver must participate with the recipient, in a two-person or group experience such as shared camping, pottery, a concert, a meal, or an escape room, and the relationship should be a close one such as partners, close friends, or family. For Activity, advise on a friendly invitation, schedule coordination, avoiding social pressure, and an invitation letter or promise-coupon direction.
+
+Activity has two hard requirements: the giver and recipient participate together, and their relationship is intimate enough for this shared time to make sense. Look for shared participation such as 一起、共同、双人、多人、陪你、相约 or 邀请, plus an intimate relationship such as 好朋友、好友、闺蜜、伴侣、情侣、恋人、家人、父母或子女. Do not treat 同事、客户、普通合作关系 or an unspecified “朋友” as sufficient proof of intimacy. If either participation or intimacy is missing, do not invent it; keep the selected type and ask the collector to confirm. If the recipient is explicitly alone, or the giver is only sending a voucher or item, use Goods.
+
+Use the guidance fields according to the type: for Goods, purchaseOrBookingTip should cover delivery, timing, unboxing, or redemption; ritualTip should explain a natural surprise setup; pairingIdeas should include 2-3 short card or delivery-message directions. For Activity, purchaseOrBookingTip should cover booking and coordinating dates; ritualTip should explain how to invite without pressure; pairingIdeas should include 2-3 invitation-letter, promise-coupon, or opening-script directions. Do not fill activity-only guidance for Goods or goods-only guidance for Activity.
+
+Type is a hard constraint, not a soft suggestion: recommendedGiftTypeCode MUST be exactly {selected_type}. Only use activity when the deterministic type decision confirms both shared participation and an intimate relationship; for example, “女朋友一起露营”“和好朋友一起观星”“陪父母一起旅行”. A phrase such as “露营”“双人观星” or “和朋友一起” without a close relationship is not enough; use product for automatic inference and ask for confirmation. If the experience is for the recipient alone, use product. If the input describes an item people buy, own, consume, ship, or use (for example 礼盒、冰箱贴、书签、镜头、帐篷、底料、茶叶), use product and fill productDetails. Never return the opposite type just because the UI's previous selection was different. Activity and product details are mutually exclusive: do not put booking, duration, participants, or service regions into productDetails; do not put materials, shipping, sizes, or generic product names into activityDetails.
+
+Do not invent a merchant, URL, exact address, or unverifiable factual claim. Price is an estimated CNY range and may be null when uncertain. Use short Chinese values and only suggest facts that can reasonably be inferred from the name. whyTemplate must contain 4-6 distinct bullet points separated by newlines, with every line starting with '- '; cover the gift's features, likely recipient, suitable occasion, and emotional or practical value without repeating yourself. Never use placeholders such as {{recipient}}, {{occasion}}, or {{relationship}}. Fill every applicable field, and use null or [] when unknown.
 
 Return these keys: recommendedGiftTypeCode (product|activity), typeReason, subcategoryCode, shortDescription, whyTemplate, priceMin, priceMax, isFree, recipientTypes[], relationshipStages[], ageRanges[], traits[], interests[], occasions[], desiredFeelings[], memoryHooks[], tags[], customTags[], bestScenarios, unsuitableScenarios, purchaseOrBookingTip, ritualTip, pairingIdeas, confidence (0 to 1), and {type_specific}."""
 
@@ -287,7 +335,19 @@ def _nullable_text(value: object) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
+    text = re.sub(r"\{(?:recipient|receiver|relationship|gift_recipient)\}", "收礼人", text, flags=re.IGNORECASE)
+    text = re.sub(r"\{occasion\}", "节日、聚餐或朋友聚会", text, flags=re.IGNORECASE)
     return text or None
+
+
+def _format_reason_points(text: str) -> str:
+    lines = [line.strip() for line in re.split(r"\r?\n+", text) if line.strip()]
+    if len(lines) == 1:
+        lines = [part.strip() for part in re.split(r"(?<=[。！？；])\s*", lines[0]) if part.strip()]
+    lines = [re.sub(r"^(?:[-*•]\s*|\d+[.)、]\s*)", "", line) for line in lines[:6]]
+    if 4 <= len(lines) <= 6:
+        return "\n".join(f"- {line}" for line in lines)
+    return text
 
 
 def _number(value: object) -> int | float | None:
@@ -339,14 +399,23 @@ def _normalize_activity_details(value: object) -> dict[str, object]:
     return result
 
 
-def _normalize_ai_suggestion(raw: dict[str, object], fallback: dict[str, object], selected_type: str) -> dict[str, object]:
+def _normalize_ai_suggestion(
+    raw: dict[str, object],
+    fallback: dict[str, object],
+    selected_type: str,
+    type_reason: str | None = None,
+) -> dict[str, object]:
     result = dict(fallback)
     for key in ("typeReason", "subcategoryCode", "shortDescription", "whyTemplate", "bestScenarios", "unsuitableScenarios", "purchaseOrBookingTip", "ritualTip", "pairingIdeas"):
         if key in raw:
-            result[key] = _nullable_text(raw[key]) or result[key]
-    recommended_type = raw.get("recommendedGiftTypeCode")
-    if recommended_type in {"product", "activity"}:
-        result["recommendedGiftTypeCode"] = recommended_type
+            value = _nullable_text(raw[key])
+            if key == "whyTemplate" and value:
+                value = _format_reason_points(value)
+            result[key] = value or result[key]
+    # The model cannot override the deterministic type decision. This also
+    # protects the form when DeepSeek follows a stale/default UI selection.
+    result["recommendedGiftTypeCode"] = selected_type
+    result["typeReason"] = type_reason or result.get("typeReason") or "按当前选择的礼物类型生成建议，请人工确认。"
     for key in ("recipientTypes", "relationshipStages", "ageRanges", "traits", "interests", "occasions", "desiredFeelings", "memoryHooks", "tags", "customTags"):
         if key in raw:
             result[key] = _string_list(raw[key])
@@ -363,8 +432,12 @@ def _normalize_ai_suggestion(raw: dict[str, object], fallback: dict[str, object]
     confidence = _number(raw.get("confidence"))
     if confidence is not None:
         result["confidence"] = min(1, confidence)
-    result["productDetails"] = _normalize_product_details(raw.get("productDetails"))
-    result["activityDetails"] = _normalize_activity_details(raw.get("activityDetails"))
+    if selected_type == "product":
+        result["productDetails"] = _normalize_product_details(raw.get("productDetails"))
+        result["activityDetails"] = {}
+    else:
+        result["productDetails"] = {}
+        result["activityDetails"] = _normalize_activity_details(raw.get("activityDetails"))
     result["source"] = "deepseek"
     return result
 

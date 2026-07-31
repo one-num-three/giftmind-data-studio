@@ -8,7 +8,7 @@ export interface AssistantMessage {
   attachments: AssistantAttachment[];
   sourceRefs?: Array<{ label?: string; url?: string; status?: string; error?: string }>;
 }
-export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; sourceRefs?: string[]; status: "pending" | "applied" | "ignored"; }
+export interface FieldPatch { path: string; label: string; value: unknown; confidence: number; reason?: string | null; evidence?: string[]; sourceRefs?: string[]; status: "pending" | "applied" | "ignored"; }
 export interface SuggestionRun { id: string; patches: FieldPatch[]; appliedFields: string[]; ignoredFields: string[]; source?: "deepseek" | "rule"; }
 export interface AssistantThread { id: string; giftId?: string | null; messages: AssistantMessage[]; suggestionRuns: SuggestionRun[]; }
 export interface AssistantTurn { userMessage: AssistantMessage; assistantMessage: AssistantMessage; suggestionRun: SuggestionRun; }
@@ -19,10 +19,30 @@ export interface BatchLinkItem {
   patches: FieldPatch[];
   duplicates: Array<{ gift_id?: string; canonical_name: string; exact: boolean; similarity: number }>;
   questions?: string[];
+  sourceRef?: {
+    url?: string;
+    resolvedUrl?: string;
+    label?: string;
+    title?: string;
+    description?: string;
+    text?: string;
+    status?: string;
+    error?: string;
+    extractionMode?: string;
+    priceHints?: string[];
+  };
 }
 
 export function createAssistantThread(draftId: string, giftId?: string | null) {
   return apiRequest<AssistantThread>("/api/ai/threads", { method: "POST", body: { draftId, giftId } });
+}
+
+export function resetAssistantThread(threadId: string) {
+  return apiRequest<AssistantThread>(`/api/ai/threads/${threadId}/reset`, { method: "POST" });
+}
+
+export function deleteAssistantHistory(threadId: string) {
+  return apiRequest<{ deletedRuns: number; deletedMessages: number }>(`/api/ai/threads/${threadId}/history`, { method: "DELETE" });
 }
 
 export function sendAssistantMessage(threadId: string, payload: { content: string; giftTypeCode: string; currentValues: unknown; attachments: AssistantAttachment[] }) {
