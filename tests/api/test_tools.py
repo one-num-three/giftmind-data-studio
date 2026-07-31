@@ -79,6 +79,9 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
 ```"""}}]}
 
     class FakeClient:
+        def __init__(self, **kwargs):
+            captured_request["client"] = kwargs
+
         async def __aenter__(self):
             return self
 
@@ -90,7 +93,7 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
             return FakeResponse()
 
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-complete-prefill")
-    monkeypatch.setattr(tools_route.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(tools_route.httpx, "AsyncClient", lambda **kwargs: FakeClient(**kwargs))
     tools_route.get_settings.cache_clear()
     try:
         with create_tools_client(tmp_path) as client:
@@ -108,6 +111,7 @@ def test_deepseek_suggest_returns_complete_product_prefill(tmp_path, monkeypatch
     assert payload["recipientTypes"] == ["朋友"]
     assert payload["productDetails"]["materials"] == ["金属"]
     assert captured_request["json"]["model"] == "deepseek-v4-flash"
+    assert captured_request["client"]["timeout"] == tools_route.DEEPSEEK_TIMEOUT_SECONDS
 
 
 def test_taobao_login_panel_keeps_browser_state_server_side(tmp_path):

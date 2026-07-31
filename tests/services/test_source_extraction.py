@@ -44,6 +44,7 @@ def test_public_url_validation_rejects_local_and_non_http_destinations():
 def test_taobao_product_urls_are_selected_for_browser_extraction():
     assert is_taobao_product_url("https://item.taobao.com/item.htm?id=123") is True
     assert is_taobao_product_url("https://detail.tmall.com/item.htm?id=123") is True
+    assert is_taobao_product_url("https://e.tb.cn/h.8fxuTQA?tk=CUE2gD1xs2P") is True
     assert is_taobao_product_url("https://www.taobao.com/") is False
     assert is_taobao_product_url("https://example.com/item.htm?id=123") is False
 

@@ -67,7 +67,7 @@ async function analyzeLinks() {
 }
 function serviceTone(ok: boolean) { return ok ? "status--ok" : "status--warn"; }
 function taobaoStatusLabel(status: ServerStatus["taobao"]) { if (!status.enabled) return "已关闭"; if (!status.browserAvailable) return "浏览器不可用"; if (status.stateSaved) return "已保存登录"; return "未登录"; }
-function extractionStatusLabel(status: string) { return ({ ok: "解析成功", challenge: "需要人工验证", browser_unavailable: "浏览器不可用", browser_error: "浏览器错误", timeout: "解析超时", blocked: "链接被拦截", error: "请求失败", unsupported: "格式不支持", too_large: "页面过大" } as Record<string, string>)[status] || status; }
+function extractionStatusLabel(status: string) { return ({ ok: "解析成功", challenge: "需要人工验证", login_required: "需要先登录淘宝", browser_unavailable: "浏览器不可用", browser_error: "浏览器错误", timeout: "解析超时", blocked: "链接被拦截", error: "请求失败", unsupported: "格式不支持", too_large: "页面过大" } as Record<string, string>)[status] || status; }
 function extractionTone(status: string) { return status === "ok" ? "status--ok" : "status--warn"; }
 function formatPatchValue(value: unknown) { return Array.isArray(value) ? value.join("、") : typeof value === "boolean" ? (value ? "是" : "否") : String(value ?? "未识别"); }
 async function reviewBatchItem(item: BatchLinkItem) {
