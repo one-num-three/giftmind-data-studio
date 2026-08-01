@@ -4,15 +4,16 @@
     <section v-if="restoredDraft" class="restore" aria-live="polite"><strong>发现未完成的本地草稿</strong><span>它只保存在此浏览器，尚未提交。</span><div><button data-action="restore-draft" type="button" @click="restore">恢复草稿</button><button type="button" @click="discardDraft">丢弃</button></div></section>
     <section v-if="batchNotice" class="feedback" aria-live="polite"><strong>批量链接建议已载入</strong><span>{{ batchNotice }}</span></section>
     <div class="workbench__grid">
-      <WorkbenchProgress class="workbench__progress" :sections="sections" current="Basic" />
+      <WorkbenchProgress class="workbench__progress" :sections="sections" current="事实信息" />
       <form ref="formRef" class="workbench__form" @input="handleFormInput" @submit.prevent="saveAndContinue">
         <section v-if="saveErrors.length" data-save-errors class="feedback feedback--error" role="alert"><strong>请先修正以下问题：</strong><ul><li v-for="error in saveErrors" :key="error">{{ error }}</li></ul></section>
         <section v-if="duplicateMatches.length" data-duplicate-feedback class="feedback" aria-live="polite"><strong>重复记录提示</strong><ul><li v-for="match in duplicateMatches" :key="`${match.canonical_name}-${match.similarity}`">{{ match.exact ? '完全重复' : '相近记录' }}：{{ match.canonical_name }}（相似度 {{ Math.round(match.similarity * 100) }}%）</li></ul></section>
-        <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" :highlighted-fields="highlightedFields" @suggestion="applyAISuggestion" />
         <GiftTypeSelector :model-value="draft.giftTypeCode" :locked="editingExisting" @select="selectType" />
+        <CommonFieldsSection v-model="draft" :gift-type-code="draft.giftTypeCode" :highlighted-fields="highlightedFields" @suggestion="applyAISuggestion" />
+        <OfferEditor v-model="draft" />
         <ProductFieldsSection v-if="draft.giftTypeCode === 'product'" v-model="draft.productDetails" :highlighted-fields="highlightedFields" />
         <ActivityFieldsSection v-else v-model="draft.activityDetails" :highlighted-fields="highlightedFields" />
-        <OfferEditor v-model="draft" /><BundleEditor v-model="draft" :exclude-gift-id="giftId" />
+        <BundleEditor v-model="draft" :exclude-gift-id="giftId" />
         <ImageManager ref="imageManager" :gift-id="store.giftId ?? undefined" />
         <div class="actions"><button type="button" @click="saveDraft">保存草稿</button><button type="submit">保存并继续</button><button data-action="save-next" type="button" @click="saveAndCreateNext">保存并新建下一条</button></div>
       </form>
@@ -60,7 +61,7 @@ const assistant = ref<{ bindGift: (giftId: string) => Promise<void> } | null>(nu
 const saveErrors = ref<string[]>([]);
 const duplicateMatches = ref<DuplicateMatch[]>([]);
 const batchNotice = ref("");
-const sections = ["Basic", "Type Confirmation", "Matching", "Type-Specific Details", "Concrete Channels", "Content & Quality"];
+const sections = ["事实信息", "AI 建议", "商品 / 活动", "来源与图片"];
 const discardMessage = computed(() => draft.value.giftTypeCode === "product" ? "商品专属信息不会用于活动记录。确认后将清除商品专属字段。" : "活动专属信息不会用于商品记录。确认后将清除活动专属字段。");
 const patchState = useAISuggestionPatch(draft, { applyType: applyAssistantType });
 const highlightedFields = computed(() => [...patchState.highlightedFields.value]);

@@ -233,12 +233,20 @@ async def _extract_taobao_page(
 
     try:
         async with async_playwright() as playwright:
-            browser = await playwright.chromium.launch(headless=True)
+            browser = await playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
             context_options: dict[str, object] = {
                 "locale": "zh-CN",
                 "user_agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/131.0 Safari/537.36 GiftMind/1.0"
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
                 ),
                 "viewport": {"width": 1280, "height": 900},
             }
@@ -312,7 +320,10 @@ async def _extract_taobao_page(
             challenge_text = f"{title} {body_text}".lower()
             resolved_host = (urlparse(resolved_url).hostname or "").lower().rstrip(".")
             login_page = resolved_host in {"login.taobao.com", "passport.taobao.com", "login.tmall.com"} or title.strip() in {"登录", "淘宝登录"}
-            if login_page or any(marker in challenge_text for marker in ("请先登录", "登录后查看", "登录淘宝", "立即登录")):
+            if login_page:
+                page_status = "session_expired"
+                error = "淘宝登录状态已失效，请在数据工具中重新完成登录并保存服务器状态。"
+            elif any(marker in challenge_text for marker in ("请先登录", "登录后查看", "登录淘宝", "立即登录")):
                 page_status = "login_required"
                 error = "淘宝页面要求登录，请在数据工具中打开淘宝登录，完成一次登录并保存服务器状态后，再重新解析。"
             elif any(marker in challenge_text for marker in ("请完成验证", "滑动验证", "安全验证", "访问受限", "人机验证", "captcha", "verify")):
