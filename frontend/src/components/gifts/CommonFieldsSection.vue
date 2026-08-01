@@ -1,25 +1,30 @@
 <template>
   <section class="section" data-section="common" aria-labelledby="basic-title">
-    <h2 id="basic-title">Basic</h2><button class="ai-button" type="button" :disabled="aiBusy || !modelValue.canonicalName.trim()" @click="runAI">{{ aiBusy ? 'AI 判断中…' : '用 DeepSeek 帮我预填' }}</button><small v-if="aiNotice" data-ai-status class="ai-notice">{{ aiNotice }}</small>
-    <div v-if="aiSuggestion" class="ai-summary" data-ai-summary><strong>这次会填入</strong><span>建议类型：{{ aiSuggestion.recommendedGiftTypeCode === 'activity' ? '活动' : '商品' }}</span><span>价格：{{ priceLabel }}</span><span>适合：{{ aiSuggestion.recipientTypes.join('、') || '待确认' }}</span><span>场景：{{ aiSuggestion.occasions.join('、') || '待确认' }}</span><span v-if="aiSuggestion.typeReason">{{ aiSuggestion.typeReason }}</span></div>
-    <label :class="{ 'ai-highlight': highlighted('canonicalName') }">标准名称<input data-field="canonical-name" v-model="modelValue.canonicalName" required /></label>
-    <label :class="{ 'ai-highlight': highlighted('shortDescription') }">简短说明<textarea data-field="short-description" v-model="modelValue.shortDescription" rows="2" /></label>
+    <div class="section-heading"><div><p class="eyebrow">先录入事实</p><h2 id="basic-title">基本信息</h2><small>人工确认名称、价格和备注；匹配标签交给 AI 先生成。</small></div><button class="ai-button" type="button" :disabled="aiBusy || !modelValue.canonicalName.trim()" @click="runAI">{{ aiBusy ? 'AI 判断中…' : '生成 AI 建议' }}</button></div>
+    <small class="helper">不确定的字段可以留空。AI 只根据你提供的名称、链接、图片和描述提出建议，不会替你虚构事实。</small>
+    <label :class="{ 'ai-highlight': highlighted('canonicalName') }">名称<input data-field="canonical-name" v-model="modelValue.canonicalName" required placeholder="例如：南京博物院文创书签" /></label>
     <div class="fields fields--two">
       <label :class="{ 'ai-highlight': highlighted('priceMin') }">最低价格<input data-field="price-min" v-model.number="modelValue.priceMin" type="number" min="0" /></label>
       <label :class="{ 'ai-highlight': highlighted('priceMax') }">最高价格<input data-field="price-max" v-model.number="modelValue.priceMax" type="number" min="0" /></label>
     </div>
-    <label :class="{ 'ai-highlight': highlighted('whyTemplate') }">送礼理由<textarea data-field="why-template" v-model="modelValue.whyTemplate" rows="3" /></label>
-    <label :class="{ 'ai-highlight': highlighted('ritualTip') }">铺垫与开口提示<textarea data-field="ritual-tip" v-model="modelValue.ritualTip" rows="3" placeholder="如何自然铺垫、开口，避免让对方有压力" /></label>
-    <label :class="{ 'ai-highlight': highlighted('purchaseOrBookingTip') }">购买 / 预约提示<textarea data-field="purchase-booking-tip" v-model="modelValue.purchaseOrBookingTip" rows="3" placeholder="商品填写配送/兑换；活动填写预约与档期确认" /></label>
-    <label :class="{ 'ai-highlight': highlighted('pairingIdeas') }">贺卡 / 邀请文案方向<textarea data-field="pairing-ideas" v-model="modelValue.pairingIdeas" rows="3" placeholder="给出贺卡、快递寄语或活动邀请的写法" /></label>
-  </section>
+    <label>是否免费 / 无需购买<input v-model="modelValue.isFree" type="checkbox" /></label>
+    <label>采集备注<textarea data-field="collector-notes" v-model="modelValue.collectorNotes" rows="3" placeholder="只记录你确认过的事实，例如：颜色、规格、适合人群或页面上的特殊说明" /></label>
+    <small v-if="aiNotice" data-ai-status class="ai-notice">{{ aiNotice }}</small>
+    <div v-if="aiSuggestion" class="ai-summary" data-ai-summary><strong>AI 已生成一轮建议，请审核</strong><span>建议类型：{{ aiSuggestion.recommendedGiftTypeCode === 'activity' ? '活动' : '商品' }}</span><span>建议价格：{{ priceLabel }}</span><span>建议对象：{{ aiSuggestion.recipientTypes.join('、') || '待确认' }}</span><span>建议场景：{{ aiSuggestion.occasions.join('、') || '待确认' }}</span><span v-if="aiSuggestion.typeReason">{{ aiSuggestion.typeReason }}</span></div>
 
-  <section class="section" data-section="matching" aria-labelledby="matching-title">
-    <h2 id="matching-title">Matching</h2>
-    <OptionPicker label="适合对象" field="recipientTypes" :options="recipientOptions" :selected="modelValue.recipientTypes" :ai-highlighted="highlighted('recipientTypes')" @toggle="toggle" />
-    <OptionPicker label="适合场景" field="occasions" :options="occasionOptions" :selected="modelValue.occasions" :ai-highlighted="highlighted('occasions')" @toggle="toggle" />
-    <OptionPicker label="兴趣标签" field="interests" :options="interestOptions" :selected="modelValue.interests" :ai-highlighted="highlighted('interests')" @toggle="toggle" />
-    <OptionPicker label="检索标签" field="tags" :options="tagOptions" :selected="modelValue.tags" :ai-highlighted="highlighted('tags')" @toggle="toggle" />
+    <details class="ai-review" data-ai-review :open="Boolean(aiSuggestion)">
+      <summary>AI 建议字段 <small>生成后审核，可修改或留空</small></summary>
+      <p class="helper">下面这些内容不需要采集员从零编写。确认有依据就保留，不确定就删除。</p>
+      <label :class="{ 'ai-highlight': highlighted('shortDescription') }">简短说明<textarea data-field="short-description" v-model="modelValue.shortDescription" rows="2" placeholder="AI 会根据资料生成" /></label>
+      <label :class="{ 'ai-highlight': highlighted('whyTemplate') }">送礼理由<textarea data-field="why-template" v-model="modelValue.whyTemplate" rows="3" placeholder="AI 会根据礼物特点和场景生成" /></label>
+      <label :class="{ 'ai-highlight': highlighted('ritualTip') }">铺垫与开口提示<textarea data-field="ritual-tip" v-model="modelValue.ritualTip" rows="3" placeholder="AI 会建议如何自然送出或发出邀请" /></label>
+      <label :class="{ 'ai-highlight': highlighted('purchaseOrBookingTip') }">购买 / 预约提示<textarea data-field="purchase-booking-tip" v-model="modelValue.purchaseOrBookingTip" rows="3" placeholder="AI 会建议配送、兑换或预约注意事项" /></label>
+      <label :class="{ 'ai-highlight': highlighted('pairingIdeas') }">贺卡 / 邀请文案方向<textarea data-field="pairing-ideas" v-model="modelValue.pairingIdeas" rows="3" placeholder="AI 会给出贺卡、快递寄语或活动邀请方向" /></label>
+      <OptionPicker label="适合对象" field="recipientTypes" :options="recipientOptions" :selected="modelValue.recipientTypes" :ai-highlighted="highlighted('recipientTypes')" @toggle="toggle" />
+      <OptionPicker label="适合场景" field="occasions" :options="occasionOptions" :selected="modelValue.occasions" :ai-highlighted="highlighted('occasions')" @toggle="toggle" />
+      <OptionPicker label="兴趣标签" field="interests" :options="interestOptions" :selected="modelValue.interests" :ai-highlighted="highlighted('interests')" @toggle="toggle" />
+      <OptionPicker label="检索标签" field="tags" :options="tagOptions" :selected="modelValue.tags" :ai-highlighted="highlighted('tags')" @toggle="toggle" />
+    </details>
   </section>
 </template>
 
@@ -72,7 +77,7 @@ async function runAI() {
     const result = await suggestGift(modelValue.value.canonicalName, props.giftTypeCode, modelValue.value as unknown as Record<string, unknown>);
     aiSuggestion.value = result; applyCommonSuggestion(result); emit("suggestion", result);
     const typeNotice = result.recommendedGiftTypeCode !== props.giftTypeCode ? `模型建议类型为${result.recommendedGiftTypeCode === "activity" ? "活动" : "商品"}，请确认是否切换。` : "";
-    aiNotice.value = `${result.source === "deepseek" ? "DeepSeek 完整建议已填入，请人工确认。" : "当前使用规则兜底建议，请人工确认。"}${typeNotice}`;
+  aiNotice.value = `${result.source === "deepseek" ? "DeepSeek 建议已生成，请逐项审核。" : "当前使用规则兜底建议，请逐项审核。"}${typeNotice}`;
   } catch { aiNotice.value = "AI 暂时不可用，请继续手动选择。"; } finally { aiBusy.value = false; }
 }
 function toggle(field: string, value: string) {
@@ -86,11 +91,13 @@ function highlighted(path: string) { return props.highlightedFields.includes(pat
 
 <style scoped>
 .section { display: grid; gap: 14px; }
-h2 { margin: 0; color: var(--color-ink); font-size: 1rem; }.ai-button { justify-self: start; padding: 8px 12px; border: 1px solid var(--color-primary); border-radius: 999px; color: var(--color-primary); background: transparent; font-weight: 800; }.ai-button:disabled { opacity: .5; }.ai-notice { color: var(--color-accent); }
+h2 { margin: 0; color: var(--color-ink); font-size: 1rem; }.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }.section-heading > div { display: grid; gap: 4px; }.section-heading small, .helper { color: var(--color-ink-muted); line-height: 1.5; }.eyebrow { margin: 0; color: var(--color-accent); font-size: .75rem; font-weight: 800; letter-spacing: .08em; }.ai-button { flex: none; justify-self: start; min-height: 38px; padding: 0 12px; border: 1px solid var(--color-primary); border-radius: 999px; color: var(--color-primary); background: transparent; font-weight: 800; }.ai-button:disabled { opacity: .5; }.ai-notice { color: var(--color-accent); }
 .ai-summary { display: grid; gap: 4px; padding: 10px 12px; border-left: 3px solid var(--color-accent); color: var(--color-ink-muted); background: var(--color-surface-muted); font-size: .82rem; }.ai-summary strong { color: var(--color-ink); }
-label { display: grid; gap: 6px; color: var(--color-ink-muted); font-size: .875rem; font-weight: 700; }
+label { display: grid; gap: 6px; color: var(--color-ink-muted); font-size: .875rem; font-weight: 700; }label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
 input, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-ink); background: var(--color-surface); }
 .ai-highlight input, .ai-highlight textarea { border-color: #79a98e; background: #eef8f1; box-shadow: 0 0 0 3px rgb(121 169 142 / .14); }
 .fields { display: grid; gap: 12px; }.fields--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ai-review { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-muted); }.ai-review summary { cursor: pointer; color: var(--color-primary); font-weight: 800; }.ai-review summary small { color: var(--color-ink-muted); font-weight: 500; }.ai-review > .helper { margin: 0; font-size: .82rem; }.ai-review label { background: var(--color-surface); }
 @media (max-width: 520px) { .fields--two { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .section-heading { display: grid; }.ai-button { width: 100%; } }
 </style>

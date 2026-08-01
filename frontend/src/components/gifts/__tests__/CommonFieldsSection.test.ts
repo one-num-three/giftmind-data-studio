@@ -28,8 +28,10 @@ describe("CommonFieldsSection AI prefill", () => {
     draft.canonicalName = "南京博物院文创书签";
 
     const wrapper = mount(CommonFieldsSection, { props: { modelValue: draft } });
+    expect(wrapper.get('[data-ai-review]').attributes("open")).toBeUndefined();
     await wrapper.get("button.ai-button").trigger("click");
 
+    expect(wrapper.get('[data-ai-review]').attributes("open")).toBeDefined();
     expect(draft.shortDescription).toBe("南京博物院主题金属书签。");
     expect(draft.whyTemplate).toContain("适合送给");
     expect(draft.priceMin).toBe(39);
