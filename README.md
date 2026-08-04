@@ -13,6 +13,7 @@ GiftMind 的数据采集与维护工作台。它为礼物条目、素材、导�
 - 淘宝/天猫商品链接由服务器端 Playwright 读取标题、说明、价格和页面文字；不下载商品图片，也不要求采集员提供淘宝账号密码
 - 工具页可打开服务器上的淘宝登录画面，人工完成一次登录后将会话状态保存到 `data/private/`，后续提取自动复用
 - AI 输出按字段审核，可单项填入、忽略或批量采用高可信建议，不会绕过人工直接保存
+- 面向 GiftMind H5 的本地策划 API：目录硬过滤、AI 生成、单件替换、信件与仪式专项重写
 
 ## 本地启动
 
@@ -77,6 +78,23 @@ npm run dev
 ```
 
 前端开发服务器会将 `/api` 请求代理至 `http://127.0.0.1:8000`。健康检查地址为 `http://127.0.0.1:8000/api/health`。
+
+## 接入 GiftMind H5
+
+先在 H5 仓库导出 101 条演示礼物，再导入本地数据库：
+
+```powershell
+# giftmind-h5
+npm run catalog:export
+
+# giftmind-data-studio；默认导入为 draft
+python -m backend.scripts.import_h5_seed ..\giftmind-h5\data\giftmind-seed-catalog.json
+
+# 本地全链路演示可直接启用；重复执行会跳过同名同类型条目
+python -m backend.scripts.import_h5_seed ..\giftmind-h5\data\giftmind-seed-catalog.json --status active
+```
+
+H5 使用的接口前缀为 `/api/h5`。`GET /api/h5/status` 可查看 DeepSeek 配置和 active 礼物数量。没有配置 `DEEPSEEK_API_KEY` 时，生成与专项修改会保留规则兜底，不会阻断本地流程。
 
 ## 验证
 
