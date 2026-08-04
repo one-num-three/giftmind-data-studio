@@ -18,6 +18,54 @@ def test_prompt_versions_are_named_unique_and_stable():
     assert all(version.endswith("_v1") for version in versions)
 
 
+def test_plan_contract_accepts_json_encoded_nested_containers():
+    output = PlanComposeOutput.model_validate(
+        {
+            "title": "一份认真准备的生日礼物",
+            "subtitle": "从真实候选中选择",
+            "relationshipInsight": "更适合具体而克制地表达在意。",
+            "selected": [
+                '{"catalogId":"gift-1","rank":1,"why":"理由一"}',
+                '{"catalogId":"gift-2","rank":2,"why":"理由二"}',
+                '{"catalogId":"gift-3","rank":3,"why":"理由三"}',
+            ],
+            "letter": '{"salutation":"给你：","body":"生日快乐。","closing":"—— 我"}',
+            "ritual": '[{"title":"递出礼物","description":"先读信。","timing":"当天"}]',
+        }
+    )
+
+    assert [item.catalog_id for item in output.selected] == ["gift-1", "gift-2", "gift-3"]
+    assert output.letter.body == "生日快乐。"
+    assert output.ritual[0].title == "递出礼物"
+
+
+def test_plan_contract_normalizes_common_flash_model_variants():
+    output = PlanComposeOutput.model_validate(
+        {
+            "title": "一份认真准备的生日礼物",
+            "subtitle": "回应共同记忆",
+            "relationshipInsight": "她重视细节与陪伴。",
+            "selected": [
+                {"catalogId": f"gift-{index}", "name": "ignored", "reason": f"理由 {index}"}
+                for index in range(1, 4)
+            ],
+            "letter": "亲爱的朋友：\n谢谢你一直在。\n—— 我",
+            "ritual": {
+                "steps": [
+                    {"name": "提前准备", "content": "确认包装和卡片。"},
+                    {"step": "送出当天", "action": "留出安静的时间。"},
+                ]
+            },
+        }
+    )
+
+    assert [item.rank for item in output.selected] == [1, 2, 3]
+    assert output.selected[0].why == "理由 1"
+    assert output.letter.body == "谢谢你一直在。"
+    assert output.ritual[0].title == "提前准备"
+    assert output.ritual[1].description == "留出安静的时间。"
+
+
 @pytest.mark.parametrize(
     "hostile_text",
     [

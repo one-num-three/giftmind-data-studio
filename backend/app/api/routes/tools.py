@@ -74,16 +74,14 @@ class ExtractInput(APIModel):
 
 
 @router.get("/settings/deepseek")
-async def deepseek_status(_auth: ProtectedSession) -> dict[str, object]:
-    get_settings.cache_clear()
-    settings = get_settings()
+async def deepseek_status(request: Request, _auth: ProtectedSession) -> dict[str, object]:
+    settings = request.app.state.settings
     return {"configured": bool(settings.deepseek_api_key), "model": DEEPSEEK_MODEL}
 
 
 @router.get("/status")
 async def server_status(request: Request, _auth: ProtectedSession) -> dict[str, object]:
-    get_settings.cache_clear()
-    settings = get_settings()
+    settings = request.app.state.settings
     taobao = request.app.state.taobao_login.health()
     return {
         "backend": {"status": "ok", "schemaVersion": settings.schema_version},

@@ -79,7 +79,10 @@ async def generate_plan(
             status_code=409,
             detail={"code": "NO_CANDIDATES", "message": "没有至少三件同时满足硬约束的礼物"},
         )
-    candidate_models = recommendation.ranked[:20]
+    # Ranking and hard constraints are deterministic. Giving the model the best
+    # ten candidates is enough to choose three while keeping the prompt small
+    # enough for the flash model to respond reliably.
+    candidate_models = recommendation.ranked[:10]
     candidates = [item.model_dump(by_alias=True) for item in candidate_models]
     client = DeepSeekClient(request.app.state.settings)
     if client.configured:

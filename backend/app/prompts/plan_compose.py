@@ -13,7 +13,11 @@ Select exactly three distinct catalogId values from CANDIDATE_ID_WHITELIST. Neve
 Never change catalog names, prices, preparation times, merchants, addresses, stock, or specifications.
 Do not invent shared memories or claim uncertain inferences as facts. Emotional writing is allowed,
 but must use restrained language when evidence is weak. Return one JSON object only matching the
-required schema: title, subtitle, relationshipInsight, selected, letter, ritual."""
+required schema: title, subtitle, relationshipInsight, selected, letter, ritual.
+Nested values must be real JSON arrays and objects. Never encode selected items, letter, or ritual
+as JSON strings. Each selected item must include catalogId, rank, why, storyConnection, and caveats.
+Letter must be {salutation, body, closing}. Ritual must be an array of
+{title, description, timing}; do not wrap it inside a steps object."""
 SCHEMA_HINT = (
     "{title, subtitle, relationshipInsight, selected:[exactly 3 {catalogId,rank,why,storyConnection,caveats}], "
     "letter:{salutation,body,closing}, ritual:[{title,description,timing}]}"
