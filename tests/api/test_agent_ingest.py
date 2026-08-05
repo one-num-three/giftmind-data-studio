@@ -67,7 +67,7 @@ def test_agent_skill_metadata_and_download_are_public(tmp_path):
     assert metadata.json()["sha256"] == hashlib.sha256(download.content).hexdigest()
     assert download.status_code == 200
     assert download.headers["content-type"] == "application/zip"
-    assert "giftmind-gift-ingest-1.0.0.zip" in download.headers["content-disposition"]
+    assert "giftmind-gift-ingest-1.1.0.zip" in download.headers["content-disposition"]
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         names = set(archive.namelist())
     assert "giftmind-gift-ingest/SKILL.md" in names
@@ -158,6 +158,50 @@ def test_agent_ingest_understands_and_stores_uploaded_image(tmp_path, monkeypatc
     assert payload["images"][0]["url"].startswith("/uploads/gifts/")
     assert payload["analysis"]["sourceRefs"][0]["processor"] == "paddleocr"
     assert understood.await_count == 1
+
+
+def test_agent_ingest_local_mode_skips_cloud_analysis(tmp_path, monkeypatch):
+    cloud_analysis = AsyncMock()
+    source_collection = AsyncMock()
+    monkeypatch.setattr(agent_route, "generate_assistant_result", cloud_analysis)
+    monkeypatch.setattr(agent_route, "_collect_sources", source_collection)
+    known = {
+        "canonicalName": "本地分析礼物",
+        "shortDescription": "由本地 Agent 根据用户材料完成的结构化礼物草稿。",
+        "giftTypeCode": "product",
+        "recipientTypes": ["朋友"],
+        "occasions": ["生日"],
+        "tags": ["实用礼物"],
+        "confidenceLevel": "high",
+        "productDetails": {
+            "productForm": "physical",
+            "genericProductName": "杯子礼盒",
+            "colors": ["蓝色"],
+            "shippingRequired": True,
+        },
+    }
+    with create_client(tmp_path) as client:
+        login(client)
+        response = client.post(
+            "/api/agent/gifts/ingest",
+            data={
+                "analysis_mode": "local",
+                "description": "本地 Agent 已完成图片和商品信息分析。",
+                "source_urls_json": json.dumps(["https://example.com/gift"]),
+                "known_fields_json": json.dumps(known, ensure_ascii=False),
+            },
+        )
+
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["gift"]["canonicalName"] == "本地分析礼物"
+    assert payload["gift"]["recipientTypes"] == ["朋友"]
+    assert payload["analysis"]["mode"] == "local"
+    assert payload["analysis"]["source"] == "local-agent"
+    assert payload["analysis"]["suggestedFieldCount"] == 0
+    assert payload["analysis"]["sourceRefs"][0]["processor"] == "local-agent"
+    assert cloud_analysis.await_count == 0
+    assert source_collection.await_count == 0
 
 
 def test_agent_ingest_blocks_exact_duplicates(tmp_path):

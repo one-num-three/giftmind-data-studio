@@ -1,4 +1,4 @@
 interface:
   display_name: "GiftMind 礼物入库"
-  short_description: "分析礼物图片与描述并自动写入 GiftMind 数据库"
-  default_prompt: "Use $giftmind-gift-ingest to analyze these gift images and add the result to GiftMind as a draft."
+  short_description: "本地分析礼物资料、核验淘宝 SKU 价格并创建 GiftMind 草稿"
+  default_prompt: "Use $giftmind-gift-ingest to analyze this gift locally, verify source details, and add it to GiftMind as a draft without cloud AI."

@@ -47,7 +47,7 @@ SUPPORTED_IMAGES = {
 }
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 SKILL_NAME = "giftmind-gift-ingest"
-SKILL_VERSION = "1.0.0"
+SKILL_VERSION = "1.1.0"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 SKILL_DIR = PROJECT_ROOT / "skills" / SKILL_NAME
 
@@ -113,6 +113,7 @@ async def ingest_gift(
     description: Annotated[str, Form(max_length=8000)] = "",
     gift_type_code: Annotated[Literal["auto", "product", "activity"], Form()] = "auto",
     lifecycle_status: Annotated[Literal["draft", "active", "inactive"], Form()] = "draft",
+    analysis_mode: Annotated[Literal["local", "cloud"], Form()] = "cloud",
     source_urls_json: Annotated[str, Form(max_length=12000)] = "[]",
     known_fields_json: Annotated[str, Form(max_length=30000)] = "{}",
     images: Annotated[list[UploadFile] | None, File()] = None,
@@ -129,19 +130,25 @@ async def ingest_gift(
 
     with TemporaryDirectory(prefix="giftmind-agent-") as temp_dir:
         prepared_images = await _prepare_images(resolved_images, Path(temp_dir))
-        source_refs = await _collect_sources(request, description, urls, prepared_images)
-        selected_type = gift_type_code if gift_type_code in {"product", "activity"} else "product"
-        result = await generate_assistant_result(
-            content=description.strip() or "请根据提供的礼物资料完成结构化录入。",
-            gift_type_code=selected_type,
-            current_values=known_fields,
-            history=[],
-            source_refs=source_refs,
-            api_key=request.app.state.settings.deepseek_api_key,
-        )
+        selected_type = _resolve_gift_type(known_fields, gift_type_code)
+        effective_known_fields = _deep_merge({}, known_fields)
+        if analysis_mode == "local":
+            effective_known_fields.setdefault("giftTypeCode", selected_type)
+            source_refs = _local_source_refs(description, urls, prepared_images)
+            result = _local_agent_result(effective_known_fields, selected_type)
+        else:
+            source_refs = await _collect_sources(request, description, urls, prepared_images)
+            result = await generate_assistant_result(
+                content=description.strip() or "请根据提供的礼物资料完成结构化录入。",
+                gift_type_code=selected_type,
+                current_values=known_fields,
+                history=[],
+                source_refs=source_refs,
+                api_key=request.app.state.settings.deepseek_api_key,
+            )
         payload_data = _build_payload(
             result=result,
-            known_fields=known_fields,
+            known_fields=effective_known_fields,
             requested_type=gift_type_code,
             lifecycle_status=lifecycle_status,
             source_urls=urls,
@@ -173,12 +180,75 @@ async def ingest_gift(
         "gift": gift.model_dump(mode="json", by_alias=True),
         "images": stored_images,
         "analysis": {
+            "mode": analysis_mode,
             "source": result.get("source", "rule"),
             "confidence": result.get("confidence", 0),
             "suggestedFieldCount": len(result.get("patches", [])),
             "questions": result.get("questions", []),
             "sourceRefs": [_source_summary(item) for item in source_refs],
         },
+    }
+
+
+def _resolve_gift_type(known_fields: dict[str, object], requested_type: str) -> str:
+    if requested_type in {"product", "activity"}:
+        return requested_type
+    known_type = known_fields.get("giftTypeCode")
+    if known_type in {"product", "activity"}:
+        return str(known_type)
+    if isinstance(known_fields.get("activityDetails"), dict) and not isinstance(
+        known_fields.get("productDetails"), dict
+    ):
+        return "activity"
+    return "product"
+
+
+def _local_source_refs(
+    description: str,
+    urls: list[str],
+    images: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    sources: list[dict[str, object]] = [
+        {"label": url, "url": url, "status": "provided", "processor": "local-agent"} for url in urls
+    ]
+    sources.extend(
+        {
+            "label": f"图片：{image['name']}",
+            "status": "provided",
+            "processor": "local-agent",
+        }
+        for image in images
+    )
+    if description.strip():
+        sources.append({"label": "Agent 本地分析", "status": "ok", "processor": "local-agent"})
+    return sources or [{"label": "Agent 本地已知字段", "status": "ok", "processor": "local-agent"}]
+
+
+def _local_agent_result(known_fields: dict[str, object], gift_type: str) -> dict[str, object]:
+    questions: list[str] = []
+    if not str(known_fields.get("canonicalName") or "").strip():
+        questions.append("礼物的准确名称是什么？")
+    if not str(known_fields.get("shortDescription") or "").strip():
+        questions.append("请补充一段基于现有证据的简短描述。")
+    if not known_fields.get("isFree") and known_fields.get("priceMin") is None and known_fields.get("priceMax") is None:
+        questions.append("已核验的价格或价格区间是多少？")
+    if gift_type == "product":
+        details = known_fields.get("productDetails")
+        if not isinstance(details, dict) or not str(details.get("genericProductName") or "").strip():
+            questions.append("它的通用商品类型是什么？")
+    else:
+        details = known_fields.get("activityDetails")
+        if not isinstance(details, dict) or details.get("durationMinutesMin") is None:
+            questions.append("活动时长和参与人数是多少？")
+    confidence = {"high": 0.9, "medium": 0.7, "low": 0.4}.get(
+        str(known_fields.get("confidenceLevel") or "medium").lower(),
+        0.7,
+    )
+    return {
+        "source": "local-agent",
+        "confidence": confidence,
+        "patches": [],
+        "questions": questions,
     }
 
 
