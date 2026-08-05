@@ -14,6 +14,7 @@ GiftMind 的数据采集与维护工作台。它为礼物条目、素材、导�
 - 工具页可打开服务器上的淘宝登录画面，人工完成一次登录后将会话状态保存到 `data/private/`，后续提取自动复用
 - AI 输出按字段审核，可单项填入、忽略或批量采用高可信建议，不会绕过人工直接保存
 - 面向 GiftMind H5 的本地策划 API：目录硬过滤、AI 生成、单件替换、信件与仪式专项重写
+- 可下载的 `giftmind-gift-ingest` Agent Skill：图片/链接分析、一键草稿入库与商品/活动数量查询
 
 ## 本地启动
 
@@ -95,6 +96,14 @@ python -m backend.scripts.import_h5_seed ..\giftmind-h5\data\giftmind-seed-catal
 ```
 
 H5 使用的接口前缀为 `/api/h5`。`GET /api/h5/status` 可查看 DeepSeek 配置和 active 礼物数量。没有配置 `DEEPSEEK_API_KEY` 时，生成与专项修改会保留规则兜底，不会阻断本地流程。
+
+## 后端 Agent 与 Skill
+
+部署或维护 Agent 入库能力前，请先阅读 [`docs/BACKEND-AGENT-SKILL.md`](docs/BACKEND-AGENT-SKILL.md)。后端启动后，访问 `GET /api/agent/skill` 可取得 Skill 元数据和绝对下载地址，也可以直接下载：
+
+```text
+http://127.0.0.1:8000/api/agent/skill/download
+```
 
 ## 验证
 

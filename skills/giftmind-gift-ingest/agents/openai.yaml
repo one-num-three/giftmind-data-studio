@@ -1,0 +1,4 @@
+interface:
+  display_name: "GiftMind 礼物入库"
+  short_description: "分析礼物图片与描述并自动写入 GiftMind 数据库"
+  default_prompt: "Use $giftmind-gift-ingest to analyze these gift images and add the result to GiftMind as a draft."
