@@ -56,6 +56,9 @@ def test_share_create_fetch_update_and_recipient_projection(tmp_path):
         assert "catalogId" not in plan["gifts"][0]
         assert plan["gifts"][0]["name"] == "黄铜书签"
         assert plan["gifts"][0]["why"]
+        # Only the recipient's own name is projected from the interview,
+        # so the ShareView greeting fallback matches mock mode.
+        assert plan["recipient"] == "女朋友 / 妻子"
         assert fetched.json()["config"]["theme"] == "dawn"
 
         updated = client.put(

@@ -79,11 +79,18 @@ def _recipient_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
                 if gift.get(key) not in (None, "")
             }
         )
-    return {
+    # The recipient's own name is safe to show them; the rest of the
+    # interview stays out so the ShareView greeting fallback matches mock mode.
+    answers = plan.get("answers")
+    recipient = answers.get("recipient") if isinstance(answers, Mapping) else None
+    projected = {
         key: plan.get(key)
         for key in ("schemaVersion", "title", "subtitle", "insight", "letter", "ritual", "share")
         if plan.get(key) is not None
     } | {"gifts": gifts}
+    if recipient:
+        projected["recipient"] = recipient
+    return projected
 
 
 async def _load_share(session: AsyncSession, share_id: str) -> Share:
