@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     vision_api_key: str | None = None
     vision_base_url: str | None = None
     vision_model: str | None = None
+    # Provider-agnostic ASR: any OpenAI-compatible /audio/transcriptions server.
+    voice_asr_provider: str = ""
+    voice_asr_base_url: str = ""
+    voice_asr_api_key: str | None = None
+    voice_asr_model: str = ""
     playwright_enabled: bool = True
     playwright_timeout_ms: int = Field(default=20_000, ge=5_000, le=60_000)
     taobao_state_path: Path = Path("./data/private/taobao-state.json")

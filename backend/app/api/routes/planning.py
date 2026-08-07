@@ -26,11 +26,13 @@ from backend.app.schemas.planning import (
     ReplaceGiftRequest,
     RewriteLetterRequest,
     RewriteRitualRequest,
+    SummaryRequest,
 )
 from backend.app.services.catalog_query import load_active_catalog
 from backend.app.services.deepseek_client import DeepSeekClient, DeepSeekError
 from backend.app.services.plan_ai_mapper import InvalidAIPlanError, compose_ai_plan
 from backend.app.services.plan_fallback import compose_rule_plan, gift_snapshot
+from backend.app.services.plan_summary import compose_summary
 from backend.app.services.recommendation import normalize_answers, rank_candidates
 
 router = APIRouter(prefix="/api/h5", tags=["h5-planning"])
@@ -59,10 +61,25 @@ async def get_planning_status(
         "model": model,
         "activeGiftCount": int(active_count or 0),
         "mode": "deepseek" if configured else "rules",
+        "voiceConfigured": bool(
+            getattr(settings, "voice_asr_provider", "").strip()
+            and getattr(settings, "voice_asr_base_url", "").strip()
+            and getattr(settings, "voice_asr_api_key", None)
+        ),
         "promptVersions": {
             "profileExtract": "profile_extract_v1",
             "planCompose": "plan_compose_v1",
         },
+    }
+
+
+@router.post("/plans/summary")
+async def summarize_answers(payload: SummaryRequest) -> dict[str, object]:
+    """Derive the editable four-block summary before plan generation."""
+    return {
+        "requestId": payload.request_id,
+        "source": "rule",
+        "summary": compose_summary(payload.answers),
     }
 
 

@@ -6,13 +6,12 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy import create_engine, event, inspect, select
-from sqlalchemy import text
+from sqlalchemy import create_engine, event, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 
-from backend.app.models.base import Base, CURRENT_SCHEMA_VERSION
+from backend.app.models.base import CURRENT_SCHEMA_VERSION, Base
 from backend.app.models.custom_fields import CustomFieldDefinition, GiftCustomFieldValue
 from backend.app.models.gift import (
     ActivityDetail,
@@ -133,7 +132,7 @@ def test_initial_migration_creates_versioned_contract_and_seed_types(tmp_path):
             seeded_codes = connection.execute(
                 select(GiftTypeDefinition.code).order_by(GiftTypeDefinition.code)
             ).scalars().all()
-        assert revision == "0002_ai_assistant_threads"
+            assert revision == "0003_h5_shares"
         assert seeded_codes == ["activity", "product"]
     finally:
         engine.dispose()

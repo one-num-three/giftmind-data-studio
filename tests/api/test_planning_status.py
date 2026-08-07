@@ -23,6 +23,7 @@ def test_h5_status_is_public_and_reports_only_eligible_active_gifts(tmp_path):
         "model": "deepseek-v4-flash",
         "activeGiftCount": 1,
         "mode": "rules",
+        "voiceConfigured": False,
         "promptVersions": {
             "profileExtract": "profile_extract_v1",
             "planCompose": "plan_compose_v1",

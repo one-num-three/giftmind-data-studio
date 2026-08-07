@@ -19,6 +19,14 @@ class PlanningAnswers(APIModel):
     feeling: str | None = None
     style: list[str] = Field(default_factory=list)
     city: str | None = None
+    # Free-text edits made on the summary confirmation page; does not change
+    # deterministic hard filters, which stay in the structured fields above.
+    summary_notes: str | None = None
+
+
+class SummaryRequest(APIModel):
+    request_id: str = Field(min_length=1, max_length=128)
+    answers: PlanningAnswers
 
 
 class GeneratePlanRequest(APIModel):

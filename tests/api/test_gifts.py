@@ -11,12 +11,13 @@ from backend.app.models.base import Base
 from backend.app.models.taxonomy import GiftTypeDefinition
 
 
-def create_client(tmp_path) -> TestClient:
+def create_client(tmp_path, **settings_overrides) -> TestClient:
     database_path = tmp_path / "gifts.sqlite3"
     settings = Settings(
         app_secret="test-app-secret",
         team_passcode="team-secret",
         database_url=f"sqlite+aiosqlite:///{database_path.as_posix()}",
+        **settings_overrides,
     )
 
     async def initialize() -> None:
